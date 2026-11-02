@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+storage/
+*.gguf
+
+# Product specification and local agent notes. Not part of the public repository.
+private/
+.cursor/rules/genesis-prd.mdc
+.cursor/rules/owner-decisions.mdc
