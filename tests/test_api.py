@@ -62,7 +62,7 @@ def test_health_and_single_dropped_model_loads(tmp_path: Path) -> None:
     with client:
         health = client.get("/health")
         assert health.status_code == 200
-        assert health.json()["phase"] == "2"
+        assert health.json()["phase"] == "3"
         assert ".venv" in health.json()["venv"]
         status = client.get("/model").json()
         assert status["loaded"] is True

@@ -57,6 +57,13 @@ class ResearchConfig(BaseModel):
     github_token: str | None = None
 
 
+class ModulesConfig(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    directory: str = "genesis_modules"
+    skills_directory: str = "storage/skills"
+
+
 class IdentityConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -72,6 +79,7 @@ class Settings(BaseModel):
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     research: ResearchConfig = Field(default_factory=ResearchConfig)
+    modules: ModulesConfig = Field(default_factory=ModulesConfig)
     identity: IdentityConfig = Field(default_factory=IdentityConfig)
 
     def resolve_path(self, value: str, root: Path) -> Path:

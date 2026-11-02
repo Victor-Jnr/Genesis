@@ -28,6 +28,9 @@ STEP_SYSTEM = (
     'Actions: {"action":"search","query":"..."}, {"action":"repositories","query":"..."}, '
     '{"action":"package","name":"..."}, {"action":"fetch","url":"..."}, '
     '{"action":"read","url":"..."}, {"action":"download","url":"..."}, '
+    '{"action":"inventory"}, {"action":"install","path":"..."}, '
+    '{"action":"invoke","name":"...","task":"..."}, '
+    '{"action":"remember","name":"...","text":"..."}, {"action":"skills","query":"..."}, '
     '{"action":"finish","result":"..."}. '
     "After an observation, send the next action or the step result."
 )

@@ -48,7 +48,7 @@ Invoke-RestMethod http://127.0.0.1:8765/health
 {
   "status": "ok",
   "venv": "C:\\git\\AI_Worker\\.venv",
-  "phase": "2"
+  "phase": "3"
 }
 ```
 
@@ -137,6 +137,24 @@ Invoke-RestMethod http://127.0.0.1:8765/objectives/<objective_id>/resources
 
 Downloads go to `storage/downloads`. Private and loopback hosts are refused unless `research.allow_private_hosts` is `true`.
 
+## Modules
+
+A module is a folder with `manifest.json`, an entry file, and an optional `requirements.txt`. Put it in `genesis_modules/` and restart, or install a folder that already sits inside the project:
+
+```powershell
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8765/modules/install `
+  -ContentType application/json `
+  -Body '{"path":"genesis_modules/echo"}'
+```
+
+`requirements.txt` is installed with the project `.venv` interpreter. The module stays registered after a restart. Call it with `POST /modules/{id}/invoke` and body `{"task":"..."}`. `GET /capabilities` lists built-in research actions and installed modules. A skill is a saved procedure:
+
+```powershell
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8765/skills `
+  -ContentType application/json `
+  -Body '{"name":"greet","body":"Say hello before the task."}'
+```
+
 ## HTTP API
 
 | Method | Path | Purpose |
@@ -154,6 +172,12 @@ Downloads go to `storage/downloads`. Private and loopback hosts are refused unle
 | `POST` | `/objectives/{id}/resume` | Resume a paused, waiting, or failed objective |
 | `GET` | `/objectives/{id}/resources` | Sources recorded while that objective ran |
 | `GET` | `/resources` | Recorded sources, newest first |
+| `GET` | `/modules` | Installed modules |
+| `POST` | `/modules/install` | Body: `{"path":"..."}`. Register a module folder inside the project |
+| `POST` | `/modules/{id}/invoke` | Body: `{"task":"..."}` |
+| `GET` | `/capabilities` | Built-in actions and installed modules |
+| `GET` | `/skills` | Saved procedures |
+| `POST` | `/skills` | Body: `{"name":"...","body":"..."}` |
 | `GET` | `/conversations` | Conversations, newest first |
 | `GET` | `/conversations/{id}` | One conversation and its messages |
 
@@ -181,6 +205,8 @@ Interactive request docs are served at [http://127.0.0.1:8765/docs](http://127.0
 | `research.download_directory` | `storage/downloads` | Saved downloads |
 | `research.max_actions` | `4` | Lookups allowed in one step |
 | `research.allow_private_hosts` | `false` | Refuse private and loopback URLs |
+| `modules.directory` | `genesis_modules` | Installed module folders |
+| `modules.skills_directory` | `storage/skills` | Saved procedure files |
 | `identity.name` | `Genesis` | Assistant name |
 | `identity.system_prompt` | see the yaml | System message sent with each conversation |
 
@@ -220,6 +246,8 @@ genesis/                     Application package
   core/conversation.py       Conversation history
   cognition/planner.py       Step planning
   tools/research/            Public search, fetch, and downloads
+  capabilities/              Module install, load, and skills
+genesis_modules/             Drop a module folder here
   monitoring/                JSON logging
   storage/                   SQLite access
 models/                      Drop .gguf files here

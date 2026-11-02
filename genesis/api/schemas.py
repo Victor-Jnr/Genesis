@@ -69,6 +69,47 @@ class ObjectiveEventResponse(BaseModel):
     created_at: str
 
 
+class ModuleResponse(BaseModel):
+    id: str
+    name: str
+    version: str
+    description: str
+    status: str
+    path: str
+    error: str | None
+    installed_at: str
+    updated_at: str
+
+
+class ModuleRequest(BaseModel):
+    path: str = Field(min_length=1)
+
+
+class InvokeRequest(BaseModel):
+    task: str = Field(min_length=1)
+
+
+class SkillResponse(BaseModel):
+    id: str
+    name: str
+    body: str
+    created_at: str
+    updated_at: str
+
+
+class SkillRequest(BaseModel):
+    name: str = Field(min_length=1)
+    body: str = Field(min_length=1)
+
+
+class CapabilityResponse(BaseModel):
+    name: str
+    kind: str
+    status: str
+    description: str
+    version: str | None = None
+
+
 class ResourceResponse(BaseModel):
     id: str
     objective_id: str | None

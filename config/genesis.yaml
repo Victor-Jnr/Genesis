@@ -36,6 +36,10 @@ research:
   allow_private_hosts: false
   user_agent: Genesis/0.3
 
+modules:
+  directory: genesis_modules
+  skills_directory: storage/skills
+
 identity:
   name: Genesis
   system_prompt: >
