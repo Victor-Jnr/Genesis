@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  pytest:
+    name: Windows pytest
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Create the project virtual environment
+        run: py -3 -m venv .venv
+
+      - name: Install test dependencies
+        run: .\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+
+      - name: Run pytest
+        run: .\.venv\Scripts\python.exe -m pytest
