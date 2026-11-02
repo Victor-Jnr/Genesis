@@ -12,6 +12,7 @@ from typing import Iterator
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 
+from genesis import PHASE, __version__
 from genesis.api.schemas import (
     ChatRequest,
     ChatResponse,
@@ -19,14 +20,19 @@ from genesis.api.schemas import (
     HealthResponse,
     MessageResponse,
     ModelStatusResponse,
+    ObjectiveEventResponse,
+    ObjectiveRequest,
+    ObjectiveResponse,
     SelectModelRequest,
+    StepResponse,
 )
 from genesis.core.conversation import ConversationService, UnknownConversation
 from genesis.core.model_interface.llama_cpp_backend import ModelLoadError
 from genesis.core.model_interface.service import ConfigPinned, ModelNotReady, ModelService, ModelSnapshot
+from genesis.core.orchestrator.service import ObjectiveStateError, Orchestrator, UnknownObjective
 from genesis.core.runtime import repo_root
 from genesis.monitoring.logging import log_event
-from genesis.storage.database import Database
+from genesis.storage.database import Database, Objective, ObjectiveEvent
 
 log = logging.getLogger("genesis")
 
@@ -35,10 +41,12 @@ def create_app(settings_root: PathContext) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         app.state.context.models.startup()
+        app.state.context.orchestrator.start()
         yield
+        app.state.context.orchestrator.stop()
         app.state.context.models.shutdown()
 
-    app = FastAPI(title="Genesis", version="0.1.0", lifespan=lifespan)
+    app = FastAPI(title="Genesis", version=__version__, lifespan=lifespan)
     app.state.context = settings_root
 
     @app.middleware("http")
@@ -57,7 +65,7 @@ def create_app(settings_root: PathContext) -> FastAPI:
 
     @app.get("/health", response_model=HealthResponse)
     def health() -> HealthResponse:
-        return HealthResponse(status="ok", venv=sys.prefix, phase="0")
+        return HealthResponse(status="ok", venv=sys.prefix, phase=PHASE)
 
     @app.get("/model", response_model=ModelStatusResponse)
     def model_status() -> ModelStatusResponse:
@@ -65,12 +73,14 @@ def create_app(settings_root: PathContext) -> FastAPI:
 
     @app.post("/model/reload", response_model=ModelStatusResponse)
     def model_reload() -> ModelStatusResponse:
-        return _status(app.state.context.models.reload())
+        status = _status(app.state.context.models.reload())
+        app.state.context.orchestrator.notify_model()
+        return status
 
     @app.post("/model/select", response_model=ModelStatusResponse)
     def model_select(body: SelectModelRequest) -> ModelStatusResponse:
         try:
-            return _status(app.state.context.models.select(body.filename))
+            status = _status(app.state.context.models.select(body.filename))
         except ConfigPinned as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         except ValueError as exc:
@@ -79,6 +89,36 @@ def create_app(settings_root: PathContext) -> FastAPI:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except ModelLoadError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
+        app.state.context.orchestrator.notify_model()
+        return status
+
+    @app.post("/objectives", response_model=ObjectiveResponse)
+    def create_objective(body: ObjectiveRequest) -> ObjectiveResponse:
+        try:
+            objective = app.state.context.orchestrator.submit(body.request)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return _objective_response(objective, app.state.context.db.list_objective_events(objective.id))
+
+    @app.get("/objectives", response_model=list[ObjectiveResponse])
+    def list_objectives() -> list[ObjectiveResponse]:
+        return [_objective_response(item) for item in app.state.context.orchestrator.list_objectives()]
+
+    @app.get("/objectives/{objective_id}", response_model=ObjectiveResponse)
+    def get_objective(objective_id: str) -> ObjectiveResponse:
+        try:
+            objective, events = app.state.context.orchestrator.get(objective_id)
+        except UnknownObjective as exc:
+            raise HTTPException(status_code=404, detail="Objective not found.") from exc
+        return _objective_response(objective, events)
+
+    @app.post("/objectives/{objective_id}/pause", response_model=ObjectiveResponse)
+    def pause_objective(objective_id: str) -> ObjectiveResponse:
+        return _objective_action(app, objective_id, "pause")
+
+    @app.post("/objectives/{objective_id}/resume", response_model=ObjectiveResponse)
+    def resume_objective(objective_id: str) -> ObjectiveResponse:
+        return _objective_action(app, objective_id, "resume")
 
     @app.post("/chat", response_model=ChatResponse)
     def chat(body: ChatRequest) -> ChatResponse:
@@ -179,6 +219,7 @@ class PathContext:
         self.db = db
         self.models = models
         self.conversations = ConversationService(settings, db, models)
+        self.orchestrator = Orchestrator(settings, db, models)
 
 
 def build_context(root, settings, backend) -> PathContext:
@@ -207,6 +248,40 @@ def _status(snapshot: ModelSnapshot) -> ModelStatusResponse:
         context_length=snapshot.context_length,
         n_gpu_layers=snapshot.n_gpu_layers,
         detail=snapshot.detail,
+    )
+
+
+def _objective_action(app: FastAPI, objective_id: str, action: str) -> ObjectiveResponse:
+    try:
+        orchestrator = app.state.context.orchestrator
+        objective = orchestrator.pause(objective_id) if action == "pause" else orchestrator.resume(objective_id)
+    except UnknownObjective as exc:
+        raise HTTPException(status_code=404, detail="Objective not found.") from exc
+    except ObjectiveStateError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return _objective_response(objective, app.state.context.db.list_objective_events(objective.id))
+
+
+def _objective_response(objective: Objective, events: list[ObjectiveEvent] | None = None) -> ObjectiveResponse:
+    return ObjectiveResponse(
+        id=objective.id,
+        request=objective.request,
+        status=objective.status,
+        current_step=objective.current_step,
+        steps=[
+            StepResponse(title=step.title, instruction=step.instruction, result=step.result)
+            for step in objective.steps
+        ],
+        result=objective.result,
+        error=objective.error,
+        created_at=objective.created_at,
+        updated_at=objective.updated_at,
+        events=None
+        if events is None
+        else [
+            ObjectiveEventResponse(id=event.id, kind=event.kind, message=event.message, created_at=event.created_at)
+            for event in events
+        ],
     )
 
 

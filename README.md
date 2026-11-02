@@ -48,13 +48,13 @@ Invoke-RestMethod http://127.0.0.1:8765/health
 {
   "status": "ok",
   "venv": "C:\\git\\AI_Worker\\.venv",
-  "phase": "0"
+  "phase": "1"
 }
 ```
 
 ## Add a model
 
-Put one `.gguf` file directly in `models/` (not in a subfolder). Restart the server, or rescan while it is running:
+Put one `.gguf` file in `models/`, including a file inside a subfolder. Restart the server, or rescan while it is running:
 
 ```powershell
 Invoke-RestMethod -Method Post http://127.0.0.1:8765/model/reload
@@ -73,6 +73,8 @@ Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8765/model/select `
   -ContentType application/json `
   -Body '{"filename":"your-model.gguf"}'
 ```
+
+A file in a subfolder is selected by its path relative to `models/`, such as `vendor/repo/your-model.gguf`. A bare filename also works when only one discovered file has that name. `mmproj` files are vision projectors, not chat models.
 
 The selection is stored in `storage/genesis.db`. To pin a file from configuration instead, set `model.filename` in `config/genesis.yaml`. While that value is set, `POST /model/select` will not replace it.
 
@@ -115,6 +117,18 @@ Invoke-RestMethod http://127.0.0.1:8765/conversations/<conversation_id>
 
 Without a loaded model, chat returns `409` and the model status explains what is in the folder.
 
+## Objectives
+
+An objective keeps running after the request that created it returns. The server asks the loaded model for a short plan, carries out each step, and stores the result. Restarting the server resumes an objective that was still pending, planning, or executing.
+
+```powershell
+Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8765/objectives `
+  -ContentType application/json `
+  -Body '{"request":"Summarize what this local service can do."}'
+```
+
+Read it back with `GET /objectives/{id}`. `status` moves through `pending`, `planning`, `executing`, and `completed`. A missing model sets `waiting`. `POST /objectives/{id}/pause` and `POST /objectives/{id}/resume` stop and continue that objective. The response includes the steps and the activity events for that objective.
+
 ## HTTP API
 
 | Method | Path | Purpose |
@@ -125,6 +139,11 @@ Without a loaded model, chat returns `409` and the model status explains what is
 | `POST` | `/model/select` | Body: `{"filename":"model.gguf"}` |
 | `POST` | `/chat` | Send a message. Optional `conversation_id`, `temperature`, `max_tokens` |
 | `POST` | `/chat/stream` | Same body as `/chat`, streamed as server-sent events |
+| `POST` | `/objectives` | Body: `{"request":"..."}`. Starts a background objective |
+| `GET` | `/objectives` | Objectives, newest activity first |
+| `GET` | `/objectives/{id}` | One objective, its steps, and its events |
+| `POST` | `/objectives/{id}/pause` | Pause an objective |
+| `POST` | `/objectives/{id}/resume` | Resume a paused, waiting, or failed objective |
 | `GET` | `/conversations` | Conversations, newest first |
 | `GET` | `/conversations/{id}` | One conversation and its messages |
 
@@ -182,7 +201,9 @@ genesis/                     Application package
   api/                       HTTP routes
   core/configuration/        YAML settings
   core/model_interface/      GGUF discovery and inference
+  core/orchestrator/         Background objectives
   core/conversation.py       Conversation history
+  cognition/planner.py       Step planning and step execution
   monitoring/                JSON logging
   storage/                   SQLite access
 models/                      Drop .gguf files here
