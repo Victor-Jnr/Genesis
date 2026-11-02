@@ -50,3 +50,33 @@ class HealthResponse(BaseModel):
     status: str
     venv: str
     phase: str
+
+
+class ObjectiveRequest(BaseModel):
+    request: str = Field(min_length=1)
+
+
+class StepResponse(BaseModel):
+    title: str
+    instruction: str
+    result: str | None = None
+
+
+class ObjectiveEventResponse(BaseModel):
+    id: str
+    kind: str
+    message: str
+    created_at: str
+
+
+class ObjectiveResponse(BaseModel):
+    id: str
+    request: str
+    status: str
+    current_step: int
+    steps: list[StepResponse]
+    result: str | None
+    error: str | None
+    created_at: str
+    updated_at: str
+    events: list[ObjectiveEventResponse] | None = None

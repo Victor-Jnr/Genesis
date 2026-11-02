@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -29,6 +30,35 @@ class Message:
     conversation_id: str
     role: str
     content: str
+    created_at: str
+
+
+@dataclass(frozen=True)
+class StepRecord:
+    title: str
+    instruction: str
+    result: str | None = None
+
+
+@dataclass(frozen=True)
+class Objective:
+    id: str
+    request: str
+    status: str
+    steps: tuple[StepRecord, ...]
+    current_step: int
+    result: str | None
+    error: str | None
+    created_at: str
+    updated_at: str
+
+
+@dataclass(frozen=True)
+class ObjectiveEvent:
+    id: str
+    objective_id: str
+    kind: str
+    message: str
     created_at: str
 
 
@@ -61,6 +91,26 @@ class Database:
                 );
                 CREATE INDEX IF NOT EXISTS idx_messages_conversation
                     ON messages (conversation_id, created_at);
+                CREATE TABLE IF NOT EXISTS objectives (
+                    id TEXT PRIMARY KEY,
+                    request TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    steps_json TEXT NOT NULL,
+                    current_step INTEGER NOT NULL,
+                    result TEXT,
+                    error TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS objective_events (
+                    id TEXT PRIMARY KEY,
+                    objective_id TEXT NOT NULL REFERENCES objectives(id),
+                    kind TEXT NOT NULL,
+                    message TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_objective_events
+                    ON objective_events (objective_id, created_at);
                 """
             )
 
@@ -127,6 +177,134 @@ class Database:
             )
         return message
 
+    def create_objective(self, request: str) -> Objective:
+        now = utc_now()
+        objective = Objective(str(uuid4()), request, "pending", (), 0, None, None, now, now)
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO objectives (
+                    id, request, status, steps_json, current_step, result, error, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    objective.id,
+                    objective.request,
+                    objective.status,
+                    "[]",
+                    0,
+                    None,
+                    None,
+                    objective.created_at,
+                    objective.updated_at,
+                ),
+            )
+        return objective
+
+    def get_objective(self, objective_id: str) -> Objective | None:
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM objectives WHERE id = ?", (objective_id,)).fetchone()
+        return None if row is None else _objective(row)
+
+    def list_objectives(self) -> list[Objective]:
+        with self._connect() as conn:
+            rows = conn.execute("SELECT * FROM objectives ORDER BY updated_at DESC, rowid DESC").fetchall()
+        return [_objective(row) for row in rows]
+
+    def next_runnable_objective(self) -> Objective | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT * FROM objectives
+                WHERE status IN ('pending', 'planning', 'executing')
+                ORDER BY created_at ASC, rowid ASC
+                LIMIT 1
+                """
+            ).fetchone()
+        return None if row is None else _objective(row)
+
+    def save_objective(self, objective: Objective) -> Objective:
+        now = utc_now()
+        steps_json = json.dumps(
+            [
+                {"title": step.title, "instruction": step.instruction, "result": step.result}
+                for step in objective.steps
+            ]
+        )
+        with self._connect() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE objectives
+                SET status = ?, steps_json = ?, current_step = ?, result = ?, error = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (
+                    objective.status,
+                    steps_json,
+                    objective.current_step,
+                    objective.result,
+                    objective.error,
+                    now,
+                    objective.id,
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise KeyError(objective.id)
+        return Objective(
+            objective.id,
+            objective.request,
+            objective.status,
+            objective.steps,
+            objective.current_step,
+            objective.result,
+            objective.error,
+            objective.created_at,
+            now,
+        )
+
+    def requeue_waiting_objectives(self) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE objectives SET status = 'pending', updated_at = ? WHERE status = 'waiting'",
+                (utc_now(),),
+            )
+
+    def add_objective_event(self, objective_id: str, kind: str, message: str) -> ObjectiveEvent:
+        if self.get_objective(objective_id) is None:
+            raise KeyError(objective_id)
+        event = ObjectiveEvent(str(uuid4()), objective_id, kind, message, utc_now())
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO objective_events (id, objective_id, kind, message, created_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (event.id, event.objective_id, event.kind, event.message, event.created_at),
+            )
+        return event
+
+    def list_objective_events(self, objective_id: str) -> list[ObjectiveEvent]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, objective_id, kind, message, created_at
+                FROM objective_events
+                WHERE objective_id = ?
+                ORDER BY created_at ASC, rowid ASC
+                """,
+                (objective_id,),
+            ).fetchall()
+        return [
+            ObjectiveEvent(
+                str(row["id"]),
+                str(row["objective_id"]),
+                str(row["kind"]),
+                str(row["message"]),
+                str(row["created_at"]),
+            )
+            for row in rows
+        ]
+
     def list_messages(self, conversation_id: str) -> list[Message]:
         with self._connect() as conn:
             rows = conn.execute(
@@ -167,6 +345,36 @@ class Database:
 
 def _conversation(row: sqlite3.Row) -> Conversation:
     return Conversation(str(row["id"]), str(row["title"]), str(row["created_at"]), str(row["updated_at"]))
+
+
+def _objective(row: sqlite3.Row) -> Objective:
+    raw_steps = json.loads(str(row["steps_json"]))
+    steps: list[StepRecord] = []
+    if isinstance(raw_steps, list):
+        for item in raw_steps:
+            if not isinstance(item, dict):
+                continue
+            result = item.get("result")
+            steps.append(
+                StepRecord(
+                    str(item.get("title") or ""),
+                    str(item.get("instruction") or ""),
+                    None if result is None else str(result),
+                )
+            )
+    result = row["result"]
+    error = row["error"]
+    return Objective(
+        str(row["id"]),
+        str(row["request"]),
+        str(row["status"]),
+        tuple(steps),
+        int(row["current_step"]),
+        None if result is None else str(result),
+        None if error is None else str(error),
+        str(row["created_at"]),
+        str(row["updated_at"]),
+    )
 
 
 def _title(text: str) -> str:

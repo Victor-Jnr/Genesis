@@ -1,4 +1,4 @@
-# Phase 0 configuration. Edit this file to change runtime behavior.
+# Runtime configuration. Edit this file to change behavior without a code change.
 # Model switching and paths here do not require application code changes.
 
 server:

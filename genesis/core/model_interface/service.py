@@ -15,6 +15,7 @@ from genesis.core.model_interface.discovery import (
     ModelChoice,
     list_gguf,
     model_file,
+    model_key,
     resolve_model_choice,
 )
 from genesis.core.model_interface.llama_cpp_backend import GenerationResult, LlamaCppBackend, ModelLoadError
@@ -113,7 +114,7 @@ class ModelService:
                     "or change that value in the yaml."
                 )
             path = model_file(self.directory, filename)
-            self.db.set_setting(SELECTED_MODEL_KEY, path.name)
+            self.db.set_setting(SELECTED_MODEL_KEY, model_key(self.directory, path))
             self._detail = None
             try:
                 self._apply(self._choice())
@@ -129,8 +130,8 @@ class ModelService:
         return ModelSnapshot(
             loaded=loaded_path is not None,
             directory=str(self.directory),
-            filename=None if loaded_path is None else loaded_path.name,
-            discovered=[path.name for path in files],
+            filename=None if loaded_path is None else model_key(self.directory, loaded_path),
+            discovered=[model_key(self.directory, path) for path in files],
             context_length=self.settings.model.context_length,
             n_gpu_layers=self.settings.model.n_gpu_layers,
             detail=self._detail,
