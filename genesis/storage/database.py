@@ -63,6 +63,29 @@ class ObjectiveEvent:
 
 
 @dataclass(frozen=True)
+class ModuleRecord:
+    id: str
+    name: str
+    version: str
+    description: str
+    status: str
+    path: str
+    manifest_json: str
+    error: str | None
+    installed_at: str
+    updated_at: str
+
+
+@dataclass(frozen=True)
+class Skill:
+    id: str
+    name: str
+    body: str
+    created_at: str
+    updated_at: str
+
+
+@dataclass(frozen=True)
 class Resource:
     id: str
     objective_id: str | None
@@ -137,6 +160,25 @@ class Database:
                 );
                 CREATE INDEX IF NOT EXISTS idx_resources_objective
                     ON resources (objective_id, retrieved_at);
+                CREATE TABLE IF NOT EXISTS modules (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    version TEXT NOT NULL,
+                    description TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    path TEXT NOT NULL,
+                    manifest_json TEXT NOT NULL,
+                    error TEXT,
+                    installed_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS skills (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL UNIQUE,
+                    body TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                );
                 """
             )
 
@@ -392,6 +434,74 @@ class Database:
                 ).fetchall()
         return [_resource(row) for row in rows]
 
+    def get_module(self, module_id: str) -> ModuleRecord | None:
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM modules WHERE id = ?", (module_id,)).fetchone()
+        return None if row is None else _module(row)
+
+    def list_modules(self) -> list[ModuleRecord]:
+        with self._connect() as conn:
+            rows = conn.execute("SELECT * FROM modules ORDER BY name COLLATE NOCASE").fetchall()
+        return [_module(row) for row in rows]
+
+    def save_module(
+        self,
+        module_id: str,
+        name: str,
+        version: str,
+        description: str,
+        status: str,
+        path: str,
+        manifest_json: str,
+        error: str | None,
+    ) -> ModuleRecord:
+        existing = self.get_module(module_id)
+        now = utc_now()
+        installed_at = now if existing is None else existing.installed_at
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO modules (
+                    id, name, version, description, status, path, manifest_json, error, installed_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    name = excluded.name,
+                    version = excluded.version,
+                    description = excluded.description,
+                    status = excluded.status,
+                    path = excluded.path,
+                    manifest_json = excluded.manifest_json,
+                    error = excluded.error,
+                    updated_at = excluded.updated_at
+                """,
+                (module_id, name, version, description, status, path, manifest_json, error, installed_at, now),
+            )
+        stored = self.get_module(module_id)
+        if stored is None:
+            raise KeyError(module_id)
+        return stored
+
+    def save_skill(self, name: str, body: str) -> Skill:
+        now = utc_now()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO skills (id, name, body, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(name) DO UPDATE SET body = excluded.body, updated_at = excluded.updated_at
+                """,
+                (str(uuid4()), name, body, now, now),
+            )
+            row = conn.execute("SELECT * FROM skills WHERE name = ?", (name,)).fetchone()
+        if row is None:
+            raise KeyError(name)
+        return _skill(row)
+
+    def list_skills(self) -> list[Skill]:
+        with self._connect() as conn:
+            rows = conn.execute("SELECT * FROM skills ORDER BY name COLLATE NOCASE").fetchall()
+        return [_skill(row) for row in rows]
+
     def list_messages(self, conversation_id: str) -> list[Message]:
         with self._connect() as conn:
             rows = conn.execute(
@@ -432,6 +542,32 @@ class Database:
 
 def _conversation(row: sqlite3.Row) -> Conversation:
     return Conversation(str(row["id"]), str(row["title"]), str(row["created_at"]), str(row["updated_at"]))
+
+
+def _module(row: sqlite3.Row) -> ModuleRecord:
+    error = row["error"]
+    return ModuleRecord(
+        str(row["id"]),
+        str(row["name"]),
+        str(row["version"]),
+        str(row["description"]),
+        str(row["status"]),
+        str(row["path"]),
+        str(row["manifest_json"]),
+        None if error is None else str(error),
+        str(row["installed_at"]),
+        str(row["updated_at"]),
+    )
+
+
+def _skill(row: sqlite3.Row) -> Skill:
+    return Skill(
+        str(row["id"]),
+        str(row["name"]),
+        str(row["body"]),
+        str(row["created_at"]),
+        str(row["updated_at"]),
+    )
 
 
 def _resource(row: sqlite3.Row) -> Resource:

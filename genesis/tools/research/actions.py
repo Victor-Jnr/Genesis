@@ -6,7 +6,20 @@ import json
 import re
 from dataclasses import dataclass
 
-ACTIONS = {"search", "repositories", "package", "fetch", "read", "download", "finish"}
+ACTIONS = {
+    "search",
+    "repositories",
+    "package",
+    "fetch",
+    "read",
+    "download",
+    "inventory",
+    "install",
+    "invoke",
+    "remember",
+    "skills",
+    "finish",
+}
 
 
 @dataclass(frozen=True)
@@ -16,6 +29,9 @@ class ResearchAction:
     url: str = ""
     package: str = ""
     result: str = ""
+    path: str = ""
+    task: str = ""
+    text: str = ""
 
 
 def parse_action(text: str) -> ResearchAction | None:
@@ -38,4 +54,7 @@ def parse_action(text: str) -> ResearchAction | None:
         url=str(payload.get("url") or "").strip(),
         package=str(payload.get("name") or payload.get("package") or "").strip(),
         result=str(payload.get("result") or "").strip(),
+        path=str(payload.get("path") or "").strip(),
+        task=str(payload.get("task") or "").strip(),
+        text=str(payload.get("text") or "").strip(),
     )

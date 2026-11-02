@@ -14,26 +14,34 @@ from fastapi.responses import StreamingResponse
 
 from genesis import PHASE, __version__
 from genesis.api.schemas import (
+    CapabilityResponse,
     ChatRequest,
     ChatResponse,
     ConversationResponse,
     HealthResponse,
+    InvokeRequest,
     MessageResponse,
     ModelStatusResponse,
     ObjectiveEventResponse,
+    ModuleRequest,
+    ModuleResponse,
     ObjectiveRequest,
     ObjectiveResponse,
     ResourceResponse,
+    SkillRequest,
+    SkillResponse,
     SelectModelRequest,
     StepResponse,
 )
+from genesis.capabilities.manifest import ModuleError
+from genesis.capabilities.service import ModuleService
 from genesis.core.conversation import ConversationService, UnknownConversation
 from genesis.core.model_interface.llama_cpp_backend import ModelLoadError
 from genesis.core.model_interface.service import ConfigPinned, ModelNotReady, ModelService, ModelSnapshot
 from genesis.core.orchestrator.service import ObjectiveStateError, Orchestrator, UnknownObjective
 from genesis.core.runtime import repo_root
 from genesis.monitoring.logging import log_event
-from genesis.storage.database import Database, Objective, ObjectiveEvent, Resource
+from genesis.storage.database import Database, ModuleRecord, Objective, ObjectiveEvent, Resource, Skill
 from genesis.tools.research.service import ResearchService
 
 log = logging.getLogger("genesis")
@@ -43,6 +51,7 @@ def create_app(settings_root: PathContext) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         app.state.context.models.startup()
+        app.state.context.modules.startup()
         app.state.context.orchestrator.start()
         yield
         app.state.context.orchestrator.stop()
@@ -131,6 +140,42 @@ def create_app(settings_root: PathContext) -> FastAPI:
     @app.get("/resources", response_model=list[ResourceResponse])
     def list_resources() -> list[ResourceResponse]:
         return [_resource_response(item) for item in app.state.context.db.list_resources()]
+
+    @app.get("/modules", response_model=list[ModuleResponse])
+    def list_modules() -> list[ModuleResponse]:
+        return [_module_response(item) for item in app.state.context.db.list_modules()]
+
+    @app.post("/modules/install", response_model=ModuleResponse)
+    def install_module(body: ModuleRequest) -> ModuleResponse:
+        try:
+            record = app.state.context.modules.install_path(body.path)
+        except ModuleError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return _module_response(record)
+
+    @app.post("/modules/{module_id}/invoke", response_model=dict[str, str])
+    def invoke_module(module_id: str, body: InvokeRequest) -> dict[str, str]:
+        try:
+            result = app.state.context.modules.invoke(None, module_id, body.task)
+        except ModuleError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"module": module_id, "result": result}
+
+    @app.get("/capabilities", response_model=list[CapabilityResponse])
+    def capabilities() -> list[CapabilityResponse]:
+        return _capabilities(app.state.context.modules)
+
+    @app.get("/skills", response_model=list[SkillResponse])
+    def list_skills() -> list[SkillResponse]:
+        return [_skill_response(item) for item in app.state.context.db.list_skills()]
+
+    @app.post("/skills", response_model=SkillResponse)
+    def remember_skill(body: SkillRequest) -> SkillResponse:
+        try:
+            skill = app.state.context.modules.remember(body.name, body.body)
+        except ModuleError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return _skill_response(skill)
 
     @app.post("/chat", response_model=ChatResponse)
     def chat(body: ChatRequest) -> ChatResponse:
@@ -225,23 +270,33 @@ def create_app(settings_root: PathContext) -> FastAPI:
 
 
 class PathContext:
-    def __init__(self, root, settings, db: Database, models: ModelService, research: ResearchService) -> None:
+    def __init__(
+        self,
+        root,
+        settings,
+        db: Database,
+        models: ModelService,
+        research: ResearchService,
+        modules: ModuleService,
+    ) -> None:
         self.root = root
         self.settings = settings
         self.db = db
         self.models = models
         self.research = research
+        self.modules = modules
         self.conversations = ConversationService(settings, db, models)
-        self.orchestrator = Orchestrator(settings, db, models, research)
+        self.orchestrator = Orchestrator(settings, db, models, research, modules)
 
 
-def build_context(root, settings, backend, http=None) -> PathContext:
+def build_context(root, settings, backend, http=None, module_runner=None) -> PathContext:
     db_path = settings.resolve_path(settings.database.path, root)
     db = Database(db_path)
     db.migrate()
     models = ModelService(settings, db, backend, root)
     research = ResearchService(settings, db, root, http)
-    return PathContext(root, settings, db, models, research)
+    modules = ModuleService(settings, db, root, module_runner)
+    return PathContext(root, settings, db, models, research, modules)
 
 
 def build_runtime_context(backend=None) -> PathContext:
@@ -317,6 +372,55 @@ def _resource_response(resource: Resource) -> ResourceResponse:
         metadata=metadata,
         retrieved_at=resource.retrieved_at,
     )
+
+
+def _module_response(record: ModuleRecord) -> ModuleResponse:
+    return ModuleResponse(
+        id=record.id,
+        name=record.name,
+        version=record.version,
+        description=record.description,
+        status=record.status,
+        path=record.path,
+        error=record.error,
+        installed_at=record.installed_at,
+        updated_at=record.updated_at,
+    )
+
+
+def _skill_response(skill: Skill) -> SkillResponse:
+    return SkillResponse(
+        id=skill.id,
+        name=skill.name,
+        body=skill.body,
+        created_at=skill.created_at,
+        updated_at=skill.updated_at,
+    )
+
+
+def _capabilities(modules: ModuleService) -> list[CapabilityResponse]:
+    items = [
+        CapabilityResponse(name=name, kind="built-in", status="active", description=description)
+        for name, description in (
+            ("search", "Search the public web"),
+            ("repositories", "Search GitHub and GitLab"),
+            ("package", "Read a Python package from PyPI"),
+            ("fetch", "Fetch a public page"),
+            ("read", "Read documentation and list install requirements"),
+            ("download", "Download a public file"),
+        )
+    ]
+    for module in modules.db.list_modules():
+        items.append(
+            CapabilityResponse(
+                name=module.id,
+                kind="module",
+                status=module.status,
+                description=module.description,
+                version=module.version,
+            )
+        )
+    return items
 
 
 def _sse(payload: dict[str, object]) -> str:

@@ -6,6 +6,7 @@ import logging
 import threading
 from dataclasses import replace
 
+from genesis.capabilities.service import ModuleService
 from genesis.cognition.planner import PlanError, Planner, step_messages
 from genesis.tools.research.actions import parse_action
 from genesis.tools.research.service import ResearchService
@@ -41,11 +42,13 @@ class Orchestrator:
         db: Database,
         models: ModelService,
         research: ResearchService,
+        modules: ModuleService,
     ) -> None:
         self.settings = settings
         self.db = db
         self.models = models
         self.research = research
+        self.modules = modules
         self.planner = Planner(models)
         self._stop = threading.Event()
         self._wake = threading.Event()
@@ -187,7 +190,10 @@ class Orchestrator:
                 if not text:
                     raise PlanError(f"Step '{step.title}' returned an empty result.")
                 return text
-            observation = self.research.execute(objective_id, action)
+            if action.name in {"inventory", "install", "invoke", "remember", "skills"}:
+                observation = self.modules.execute(objective_id, action)
+            else:
+                observation = self.research.execute(objective_id, action)
             self._event(objective_id, action.name, observation)
             messages.append({"role": "assistant", "content": reply})
             messages.append({"role": "user", "content": f"Observation:\n{observation}"})

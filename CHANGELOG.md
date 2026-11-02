@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.0
+
+Modules can be registered from a project folder, installed into the project virtual environment, and called without changing the core. The registration and any saved skill remain after a restart.
+
 ## 0.3.0
 
 An objective can search the web and GitHub, read a PyPI package, fetch a page, and record dependencies and install lines found in documentation. Downloads and source metadata stay in SQLite.
