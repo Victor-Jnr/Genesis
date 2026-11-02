@@ -48,7 +48,7 @@ Invoke-RestMethod http://127.0.0.1:8765/health
 {
   "status": "ok",
   "venv": "C:\\git\\AI_Worker\\.venv",
-  "phase": "1"
+  "phase": "2"
 }
 ```
 
@@ -129,6 +129,14 @@ Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8765/objectives `
 
 Read it back with `GET /objectives/{id}`. `status` moves through `pending`, `planning`, `executing`, and `completed`. A missing model sets `waiting`. `POST /objectives/{id}/pause` and `POST /objectives/{id}/resume` stop and continue that objective. The response includes the steps and the activity events for that objective.
 
+While a step is running, the model may look up a public source before it writes the step result. It can search the web through DuckDuckGo, search GitHub and GitLab repositories, read a PyPI package, fetch a page, read documentation for dependencies and install lines, or download a file. Each lookup is stored and can be read back:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8765/objectives/<objective_id>/resources
+```
+
+Downloads go to `storage/downloads`. Private and loopback hosts are refused unless `research.allow_private_hosts` is `true`.
+
 ## HTTP API
 
 | Method | Path | Purpose |
@@ -144,6 +152,8 @@ Read it back with `GET /objectives/{id}`. `status` moves through `pending`, `pla
 | `GET` | `/objectives/{id}` | One objective, its steps, and its events |
 | `POST` | `/objectives/{id}/pause` | Pause an objective |
 | `POST` | `/objectives/{id}/resume` | Resume a paused, waiting, or failed objective |
+| `GET` | `/objectives/{id}/resources` | Sources recorded while that objective ran |
+| `GET` | `/resources` | Recorded sources, newest first |
 | `GET` | `/conversations` | Conversations, newest first |
 | `GET` | `/conversations/{id}` | One conversation and its messages |
 
@@ -167,6 +177,10 @@ Interactive request docs are served at [http://127.0.0.1:8765/docs](http://127.0
 | `database.path` | `storage/genesis.db` | SQLite file |
 | `logging.level` | `INFO` | Python log level |
 | `logging.directory` | `storage/logs` | JSON logs are written to `genesis.jsonl` here |
+| `research.enabled` | `true` | Allow objectives to retrieve public sources |
+| `research.download_directory` | `storage/downloads` | Saved downloads |
+| `research.max_actions` | `4` | Lookups allowed in one step |
+| `research.allow_private_hosts` | `false` | Refuse private and loopback URLs |
 | `identity.name` | `Genesis` | Assistant name |
 | `identity.system_prompt` | see the yaml | System message sent with each conversation |
 
@@ -178,6 +192,7 @@ Environment overrides:
 | `GENESIS_MODEL_DIR` | `model.directory` |
 | `GENESIS_MODEL_FILENAME` | `model.filename` |
 | `GENESIS_ROOT` | Repository root used to resolve relative paths |
+| `GENESIS_GITHUB_TOKEN` | Optional GitHub token used when repository search is rate limited |
 
 ## Development
 
@@ -203,7 +218,8 @@ genesis/                     Application package
   core/model_interface/      GGUF discovery and inference
   core/orchestrator/         Background objectives
   core/conversation.py       Conversation history
-  cognition/planner.py       Step planning and step execution
+  cognition/planner.py       Step planning
+  tools/research/            Public search, fetch, and downloads
   monitoring/                JSON logging
   storage/                   SQLite access
 models/                      Drop .gguf files here

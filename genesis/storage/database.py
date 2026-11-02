@@ -62,6 +62,19 @@ class ObjectiveEvent:
     created_at: str
 
 
+@dataclass(frozen=True)
+class Resource:
+    id: str
+    objective_id: str | None
+    kind: str
+    title: str
+    url: str | None
+    path: str | None
+    sha256: str | None
+    metadata_json: str
+    retrieved_at: str
+
+
 class Database:
     def __init__(self, path: Path) -> None:
         self.path = path
@@ -111,6 +124,19 @@ class Database:
                 );
                 CREATE INDEX IF NOT EXISTS idx_objective_events
                     ON objective_events (objective_id, created_at);
+                CREATE TABLE IF NOT EXISTS resources (
+                    id TEXT PRIMARY KEY,
+                    objective_id TEXT REFERENCES objectives(id),
+                    kind TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    url TEXT,
+                    path TEXT,
+                    sha256 TEXT,
+                    metadata_json TEXT NOT NULL,
+                    retrieved_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_resources_objective
+                    ON resources (objective_id, retrieved_at);
                 """
             )
 
@@ -305,6 +331,67 @@ class Database:
             for row in rows
         ]
 
+    def add_resource(
+        self,
+        objective_id: str | None,
+        kind: str,
+        title: str,
+        url: str | None,
+        path: str | None,
+        sha256: str | None,
+        metadata_json: str,
+    ) -> Resource:
+        if objective_id is not None and self.get_objective(objective_id) is None:
+            raise KeyError(objective_id)
+        resource = Resource(
+            str(uuid4()),
+            objective_id,
+            kind,
+            title,
+            url,
+            path,
+            sha256,
+            metadata_json,
+            utc_now(),
+        )
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO resources (
+                    id, objective_id, kind, title, url, path, sha256, metadata_json, retrieved_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    resource.id,
+                    resource.objective_id,
+                    resource.kind,
+                    resource.title,
+                    resource.url,
+                    resource.path,
+                    resource.sha256,
+                    resource.metadata_json,
+                    resource.retrieved_at,
+                ),
+            )
+        return resource
+
+    def list_resources(self, objective_id: str | None = None) -> list[Resource]:
+        with self._connect() as conn:
+            if objective_id is None:
+                rows = conn.execute(
+                    "SELECT * FROM resources ORDER BY retrieved_at DESC, rowid DESC"
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT * FROM resources
+                    WHERE objective_id = ?
+                    ORDER BY retrieved_at ASC, rowid ASC
+                    """,
+                    (objective_id,),
+                ).fetchall()
+        return [_resource(row) for row in rows]
+
     def list_messages(self, conversation_id: str) -> list[Message]:
         with self._connect() as conn:
             rows = conn.execute(
@@ -345,6 +432,24 @@ class Database:
 
 def _conversation(row: sqlite3.Row) -> Conversation:
     return Conversation(str(row["id"]), str(row["title"]), str(row["created_at"]), str(row["updated_at"]))
+
+
+def _resource(row: sqlite3.Row) -> Resource:
+    objective_id = row["objective_id"]
+    url = row["url"]
+    path = row["path"]
+    digest = row["sha256"]
+    return Resource(
+        str(row["id"]),
+        None if objective_id is None else str(objective_id),
+        str(row["kind"]),
+        str(row["title"]),
+        None if url is None else str(url),
+        None if path is None else str(path),
+        None if digest is None else str(digest),
+        str(row["metadata_json"]),
+        str(row["retrieved_at"]),
+    )
 
 
 def _objective(row: sqlite3.Row) -> Objective:

@@ -6,7 +6,9 @@ import logging
 import threading
 from dataclasses import replace
 
-from genesis.cognition.planner import PlanError, Planner
+from genesis.cognition.planner import PlanError, Planner, step_messages
+from genesis.tools.research.actions import parse_action
+from genesis.tools.research.service import ResearchService
 from genesis.core.configuration.settings import Settings
 from genesis.core.model_interface.llama_cpp_backend import ModelLoadError
 from genesis.core.model_interface.service import ModelNotReady, ModelService
@@ -33,10 +35,17 @@ class ObjectiveStateError(RuntimeError):
 
 
 class Orchestrator:
-    def __init__(self, settings: Settings, db: Database, models: ModelService) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        db: Database,
+        models: ModelService,
+        research: ResearchService,
+    ) -> None:
         self.settings = settings
         self.db = db
         self.models = models
+        self.research = research
         self.planner = Planner(models)
         self._stop = threading.Event()
         self._wake = threading.Event()
@@ -140,7 +149,7 @@ class Orchestrator:
                 index = current.current_step
                 step = current.steps[index]
                 self._event(current.id, "step", step.title)
-                text = self.planner.execute_step(current.request, step, index, len(current.steps))
+                text = self._perform_step(current.id, current.request, step, index, len(current.steps))
                 updated = list(current.steps)
                 updated[index] = StepRecord(step.title, step.instruction, text)
                 current = self._mark(
@@ -166,6 +175,23 @@ class Orchestrator:
         except Exception as exc:
             log.exception("objective failed")
             self._fail(current, str(exc))
+
+    def _perform_step(self, objective_id: str, request: str, step: StepRecord, index: int, count: int) -> str:
+        messages = step_messages(request, step, index, count)
+        limit = self.settings.research.max_actions
+        for _ in range(limit + 1):
+            reply = self.models.generate(messages, temperature=0.0, max_tokens=512).content.strip()
+            action = parse_action(reply)
+            if action is None or action.name == "finish":
+                text = reply if action is None else action.result
+                if not text:
+                    raise PlanError(f"Step '{step.title}' returned an empty result.")
+                return text
+            observation = self.research.execute(objective_id, action)
+            self._event(objective_id, action.name, observation)
+            messages.append({"role": "assistant", "content": reply})
+            messages.append({"role": "user", "content": f"Observation:\n{observation}"})
+        raise PlanError(f"Step '{step.title}' used more than {limit} research actions.")
 
     def _prepare(self, current: Objective) -> Objective:
         if current.steps:

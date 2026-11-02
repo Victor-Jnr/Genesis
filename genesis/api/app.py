@@ -23,6 +23,7 @@ from genesis.api.schemas import (
     ObjectiveEventResponse,
     ObjectiveRequest,
     ObjectiveResponse,
+    ResourceResponse,
     SelectModelRequest,
     StepResponse,
 )
@@ -32,7 +33,8 @@ from genesis.core.model_interface.service import ConfigPinned, ModelNotReady, Mo
 from genesis.core.orchestrator.service import ObjectiveStateError, Orchestrator, UnknownObjective
 from genesis.core.runtime import repo_root
 from genesis.monitoring.logging import log_event
-from genesis.storage.database import Database, Objective, ObjectiveEvent
+from genesis.storage.database import Database, Objective, ObjectiveEvent, Resource
+from genesis.tools.research.service import ResearchService
 
 log = logging.getLogger("genesis")
 
@@ -119,6 +121,16 @@ def create_app(settings_root: PathContext) -> FastAPI:
     @app.post("/objectives/{objective_id}/resume", response_model=ObjectiveResponse)
     def resume_objective(objective_id: str) -> ObjectiveResponse:
         return _objective_action(app, objective_id, "resume")
+
+    @app.get("/objectives/{objective_id}/resources", response_model=list[ResourceResponse])
+    def objective_resources(objective_id: str) -> list[ResourceResponse]:
+        if app.state.context.db.get_objective(objective_id) is None:
+            raise HTTPException(status_code=404, detail="Objective not found.")
+        return [_resource_response(item) for item in app.state.context.db.list_resources(objective_id)]
+
+    @app.get("/resources", response_model=list[ResourceResponse])
+    def list_resources() -> list[ResourceResponse]:
+        return [_resource_response(item) for item in app.state.context.db.list_resources()]
 
     @app.post("/chat", response_model=ChatResponse)
     def chat(body: ChatRequest) -> ChatResponse:
@@ -213,21 +225,23 @@ def create_app(settings_root: PathContext) -> FastAPI:
 
 
 class PathContext:
-    def __init__(self, root, settings, db: Database, models: ModelService) -> None:
+    def __init__(self, root, settings, db: Database, models: ModelService, research: ResearchService) -> None:
         self.root = root
         self.settings = settings
         self.db = db
         self.models = models
+        self.research = research
         self.conversations = ConversationService(settings, db, models)
-        self.orchestrator = Orchestrator(settings, db, models)
+        self.orchestrator = Orchestrator(settings, db, models, research)
 
 
-def build_context(root, settings, backend) -> PathContext:
+def build_context(root, settings, backend, http=None) -> PathContext:
     db_path = settings.resolve_path(settings.database.path, root)
     db = Database(db_path)
     db.migrate()
     models = ModelService(settings, db, backend, root)
-    return PathContext(root, settings, db, models)
+    research = ResearchService(settings, db, root, http)
+    return PathContext(root, settings, db, models, research)
 
 
 def build_runtime_context(backend=None) -> PathContext:
@@ -282,6 +296,26 @@ def _objective_response(objective: Objective, events: list[ObjectiveEvent] | Non
             ObjectiveEventResponse(id=event.id, kind=event.kind, message=event.message, created_at=event.created_at)
             for event in events
         ],
+    )
+
+
+def _resource_response(resource: Resource) -> ResourceResponse:
+    try:
+        metadata = json.loads(resource.metadata_json)
+    except json.JSONDecodeError:
+        metadata = {}
+    if not isinstance(metadata, dict):
+        metadata = {}
+    return ResourceResponse(
+        id=resource.id,
+        objective_id=resource.objective_id,
+        kind=resource.kind,
+        title=resource.title,
+        url=resource.url,
+        path=resource.path,
+        sha256=resource.sha256,
+        metadata=metadata,
+        retrieved_at=resource.retrieved_at,
     )
 
 
