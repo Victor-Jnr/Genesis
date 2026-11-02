@@ -1,0 +1,32 @@
+---
+description: Land implementation work on a branch and open a pull request into main.
+alwaysApply: true
+---
+
+# Branch and pull request
+
+Implementation that should enter the repository goes on a branch, then a pull request into `main`.
+
+This covers code, tests, configuration, scripts, and documentation.
+
+## Flow
+
+1. Update `main` before branching.
+2. Create a branch. Do not commit the work on `main`.
+3. Commit on that branch.
+4. Push the branch and open a pull request into `main`.
+5. Do not push commits straight to `main`.
+
+A question, review, or local experiment that will not be committed does not need a branch.
+
+## Private specification
+
+`private/writing-block.md` is the product specification. `private/` is gitignored.
+
+- Read it before architecture changes when the file is on the machine.
+- Never commit `private/` or its contents.
+- Never copy the specification into a tracked file.
+- Never move it back to the repository root.
+- Do not force-add gitignored specification files.
+
+`.cursor/rules/genesis-prd.mdc` and `.cursor/rules/owner-decisions.mdc` are local and gitignored. Do not commit them.

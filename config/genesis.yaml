@@ -1,0 +1,32 @@
+# Phase 0 configuration. Edit this file to change runtime behavior.
+# Model switching and paths here do not require application code changes.
+
+server:
+  host: 127.0.0.1
+  port: 8765
+
+model:
+  # Drop .gguf files in this directory (relative to the repo root, or an absolute path).
+  directory: models
+  # Pin a filename to force that model. Leave null to auto-load the only .gguf,
+  # or to use the model selected through POST /model/select.
+  filename: null
+  context_length: 4096
+  # 0 keeps inference on CPU. Set to -1 to offload every layer to the GPU.
+  n_gpu_layers: 0
+  temperature: 0.7
+  top_p: 0.95
+  max_tokens: 1024
+
+database:
+  path: storage/genesis.db
+
+logging:
+  level: INFO
+  directory: storage/logs
+
+identity:
+  name: Genesis
+  system_prompt: >
+    You are Genesis, a local developmental AI running on this machine.
+    Answer the user directly. Use only this conversation and the current message.

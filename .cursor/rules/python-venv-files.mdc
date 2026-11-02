@@ -1,0 +1,15 @@
+---
+description: Python, dependency, script, CI, and container files must run and install only inside .venv.
+globs: "**/*.py,**/requirements*.txt,**/pyproject.toml,**/Pipfile,**/setup.py,**/setup.cfg,**/*.ps1,**/*.bat,**/*.cmd,**/*.sh,**/.github/workflows/**,**/Dockerfile*,**/Makefile,**/justfile"
+alwaysApply: false
+---
+
+# These files use `.venv` only
+
+When creating or editing Python source, dependency manifests, shell or batch scripts, Makefiles, CI workflows, or container build files, follow `.cursor/rules/python-venv.mdc`.
+
+- Shebangs, script bodies, CI steps, and docs-in-code examples invoke `.venv\Scripts\python.exe` (Windows) or `.venv/bin/python` (Unix).
+- `pip install` in these files targets that interpreter: `.venv\Scripts\python.exe -m pip install ...`
+- Do not add a workflow, Dockerfile `RUN`, or script that installs into a system interpreter on the host.
+- A container may have its own isolated Python. It still must not install packages onto the host. On the host, the interpreter remains `.venv`.
+- New modules under `genesis_modules/` or `genesis/modules/` install their `requirements.txt` into the project `.venv`. Never a second environment, the user site, or system Python.

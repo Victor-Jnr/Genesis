@@ -1,0 +1,52 @@
+from pydantic import BaseModel, Field
+
+
+class ModelStatusResponse(BaseModel):
+    loaded: bool
+    directory: str
+    filename: str | None
+    discovered: list[str]
+    context_length: int
+    n_gpu_layers: int
+    detail: str | None
+
+
+class SelectModelRequest(BaseModel):
+    filename: str = Field(min_length=1)
+
+
+class ChatRequest(BaseModel):
+    message: str = Field(min_length=1)
+    conversation_id: str | None = None
+    temperature: float | None = Field(default=None, ge=0)
+    max_tokens: int | None = Field(default=None, gt=0)
+
+
+class ChatResponse(BaseModel):
+    conversation_id: str
+    message: str
+    model: str | None
+    prompt_tokens: int | None
+    completion_tokens: int | None
+    duration_ms: float
+
+
+class MessageResponse(BaseModel):
+    id: str
+    role: str
+    content: str
+    created_at: str
+
+
+class ConversationResponse(BaseModel):
+    id: str
+    title: str
+    created_at: str
+    updated_at: str
+    messages: list[MessageResponse] | None = None
+
+
+class HealthResponse(BaseModel):
+    status: str
+    venv: str
+    phase: str

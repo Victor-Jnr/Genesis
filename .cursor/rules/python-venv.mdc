@@ -1,0 +1,50 @@
+---
+description: Run and install Python only inside the project .venv. Never use system or user site-packages.
+alwaysApply: true
+---
+
+# Python stays inside `.venv`
+
+The only Python environment for this repo is the virtual environment at the repository root: `.venv`.
+
+This applies to the app, tests, scripts, tools, one-off commands, CI, module acquisition, and every dependency install. There is no valid case that runs project Python or installs a package outside that environment.
+
+## Interpreter
+
+- Windows: `.venv\Scripts\python.exe` and `.venv\Scripts\pip.exe`
+- Unix: `.venv/bin/python` and `.venv/bin/pip`
+
+Create `.venv` only when it is missing, using the system launcher solely for that creation step:
+
+```powershell
+py -3 -m venv .venv
+```
+
+After `.venv` exists, every later command uses its interpreter. If a shell is activated, confirm the resolved `python` and `pip` are inside `.venv` before running or installing.
+
+## Process guard
+
+Application entry points call `assert_project_venv()` and exit unless `sys.executable` is that `.venv` interpreter. `tests/conftest.py` stops pytest the same way. Do not remove those checks.
+
+- Windows install: `scripts/install.ps1`
+- Windows app: `scripts/run.ps1`
+- Windows tests: `scripts/test.ps1`
+- Unix: `.venv/bin/python -m pip install -r requirements-dev.txt`, then `.venv/bin/python -m genesis` and `.venv/bin/python -m pytest`
+
+## Installs and runs
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m pytest
+```
+
+Acquired modules install into this same `.venv`. Packages never land in the host interpreter or in a second virtual environment.
+
+## Not allowed
+
+- `python`, `py`, `python3`, `pip`, or `pip3` when they resolve outside `.venv`
+- `pip install`, `python -m pip install`, or `py -m pip install` against system or user site-packages
+- `pip install --user`, `conda install`, and `uv pip install --system`
+- A second global, base, or user environment "just for a tool"
+
+Frontend Node dependencies are not Python and do not go through `.venv`. Any Python they invoke still uses `.venv`.

@@ -3,7 +3,7 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .mypy_cache/
-storage/
+/storage/
 *.gguf
 
 # Product specification and local agent notes. Not part of the public repository.
