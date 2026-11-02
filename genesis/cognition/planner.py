@@ -23,7 +23,13 @@ PLAN_RETRY = (
 
 STEP_SYSTEM = (
     "You are Genesis carrying out one step of an objective. "
-    "Reply with the step result and nothing else."
+    "When the step can be answered from the objective, reply with the step result as plain text. "
+    "When it needs a public source, reply with one JSON object and nothing else. "
+    'Actions: {"action":"search","query":"..."}, {"action":"repositories","query":"..."}, '
+    '{"action":"package","name":"..."}, {"action":"fetch","url":"..."}, '
+    '{"action":"read","url":"..."}, {"action":"download","url":"..."}, '
+    '{"action":"finish","result":"..."}. '
+    "After an observation, send the next action or the step result."
 )
 
 CONCLUDE_SYSTEM = (
@@ -61,27 +67,6 @@ class Planner:
         result = self.models.generate(messages, temperature=0.0, max_tokens=512)
         return result.content
 
-    def execute_step(self, request: str, step: StepRecord, index: int, count: int) -> str:
-        result = self.models.generate(
-            [
-                {"role": "system", "content": STEP_SYSTEM},
-                {
-                    "role": "user",
-                    "content": (
-                        f"Objective:\n{request}\n\n"
-                        f"Step {index + 1} of {count}: {step.title}\n"
-                        f"Instruction:\n{step.instruction}"
-                    ),
-                },
-            ],
-            temperature=0.2,
-            max_tokens=512,
-        )
-        text = result.content.strip()
-        if not text:
-            raise PlanError(f"Step '{step.title}' returned an empty result.")
-        return text
-
     def conclude(self, request: str, steps: tuple[StepRecord, ...]) -> str:
         lines = [f"Objective:\n{request}", "", "Completed steps:"]
         for index, step in enumerate(steps, start=1):
@@ -98,6 +83,20 @@ class Planner:
         if not text:
             raise PlanError("The final result was empty.")
         return text
+
+
+def step_messages(request: str, step: StepRecord, index: int, count: int) -> list[dict[str, str]]:
+    return [
+        {"role": "system", "content": STEP_SYSTEM},
+        {
+            "role": "user",
+            "content": (
+                f"Objective:\n{request}\n\n"
+                f"Step {index + 1} of {count}: {step.title}\n"
+                f"Instruction:\n{step.instruction}"
+            ),
+        },
+    ]
 
 
 def plan_request(request: str) -> str:

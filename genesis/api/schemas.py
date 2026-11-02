@@ -69,6 +69,18 @@ class ObjectiveEventResponse(BaseModel):
     created_at: str
 
 
+class ResourceResponse(BaseModel):
+    id: str
+    objective_id: str | None
+    kind: str
+    title: str
+    url: str | None
+    path: str | None
+    sha256: str | None
+    metadata: dict[str, object]
+    retrieved_at: str
+
+
 class ObjectiveResponse(BaseModel):
     id: str
     request: str

@@ -43,6 +43,20 @@ class LoggingConfig(BaseModel):
     directory: str = "storage/logs"
 
 
+class ResearchConfig(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    enabled: bool = True
+    download_directory: str = "storage/downloads"
+    timeout_seconds: float = Field(default=20, gt=0)
+    max_bytes: int = Field(default=5_000_000, gt=0)
+    max_results: int = Field(default=5, gt=0, le=25)
+    max_actions: int = Field(default=4, gt=0, le=12)
+    allow_private_hosts: bool = False
+    user_agent: str = "Genesis/0.3"
+    github_token: str | None = None
+
+
 class IdentityConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -57,6 +71,7 @@ class Settings(BaseModel):
     model: ModelConfig = Field(default_factory=ModelConfig)
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
+    research: ResearchConfig = Field(default_factory=ResearchConfig)
     identity: IdentityConfig = Field(default_factory=IdentityConfig)
 
     def resolve_path(self, value: str, root: Path) -> Path:
@@ -90,4 +105,7 @@ def load_settings(path: Path | None = None, root: Path | None = None) -> Setting
     model_filename = os.environ.get("GENESIS_MODEL_FILENAME")
     if model_filename:
         settings.model.filename = model_filename
+    github_token = os.environ.get("GENESIS_GITHUB_TOKEN")
+    if github_token:
+        settings.research.github_token = github_token
     return settings

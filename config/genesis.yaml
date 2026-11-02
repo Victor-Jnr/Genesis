@@ -25,6 +25,17 @@ logging:
   level: INFO
   directory: storage/logs
 
+research:
+  enabled: true
+  download_directory: storage/downloads
+  timeout_seconds: 20
+  max_bytes: 5000000
+  max_results: 5
+  max_actions: 4
+  # Public hosts only. Set true to allow loopback and private-network URLs.
+  allow_private_hosts: false
+  user_agent: Genesis/0.3
+
 identity:
   name: Genesis
   system_prompt: >
