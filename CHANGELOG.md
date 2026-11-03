@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.1
+
+The capability inventory includes install, invoke, remember, and skills. The Windows installer tries a CUDA 13 wheel of `llama-cpp-python` before the older CUDA 12.4 wheel and the CPU wheel.
+
 ## 0.5.0
 
 An unfamiliar objective names the capability it lacks, tries that capability, and stores the procedure when the expected result appears. A later objective that names the saved skill reuses it instead of repeating the trial.

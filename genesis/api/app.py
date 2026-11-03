@@ -429,6 +429,10 @@ def _capabilities(modules: ModuleService) -> list[CapabilityResponse]:
             ("fetch", "Fetch a public page"),
             ("read", "Read documentation and list install requirements"),
             ("download", "Download a public file"),
+            ("install", "Register a module folder that is already inside the project"),
+            ("invoke", "Call an installed module"),
+            ("remember", "Save a procedure"),
+            ("skills", "List saved procedures"),
         )
     ]
     for module in modules.db.list_modules():
