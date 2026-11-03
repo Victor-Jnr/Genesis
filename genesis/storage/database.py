@@ -86,6 +86,28 @@ class Skill:
 
 
 @dataclass(frozen=True)
+class CapabilityGap:
+    id: str
+    objective_id: str
+    missing_json: str
+    known_json: str
+    created_at: str
+
+
+@dataclass(frozen=True)
+class Experiment:
+    id: str
+    objective_id: str
+    name: str
+    hypothesis: str
+    probe: str
+    expected: str
+    outcome: str
+    success: bool
+    created_at: str
+
+
+@dataclass(frozen=True)
 class Resource:
     id: str
     objective_id: str | None
@@ -179,6 +201,28 @@ class Database:
                     created_at TEXT NOT NULL,
                     updated_at TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS capability_gaps (
+                    id TEXT PRIMARY KEY,
+                    objective_id TEXT NOT NULL REFERENCES objectives(id),
+                    missing_json TEXT NOT NULL,
+                    known_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_capability_gaps
+                    ON capability_gaps (objective_id, created_at);
+                CREATE TABLE IF NOT EXISTS experiments (
+                    id TEXT PRIMARY KEY,
+                    objective_id TEXT NOT NULL REFERENCES objectives(id),
+                    name TEXT NOT NULL,
+                    hypothesis TEXT NOT NULL,
+                    probe TEXT NOT NULL,
+                    expected TEXT NOT NULL,
+                    outcome TEXT NOT NULL,
+                    success INTEGER NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_experiments
+                    ON experiments (objective_id, created_at);
                 """
             )
 
@@ -502,6 +546,109 @@ class Database:
             rows = conn.execute("SELECT * FROM skills ORDER BY name COLLATE NOCASE").fetchall()
         return [_skill(row) for row in rows]
 
+    def save_gap(self, objective_id: str, missing: list[str], known: list[str]) -> CapabilityGap:
+        if self.get_objective(objective_id) is None:
+            raise KeyError(objective_id)
+        gap = CapabilityGap(
+            str(uuid4()),
+            objective_id,
+            json.dumps(missing),
+            json.dumps(known),
+            utc_now(),
+        )
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO capability_gaps (id, objective_id, missing_json, known_json, created_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (gap.id, gap.objective_id, gap.missing_json, gap.known_json, gap.created_at),
+            )
+        return gap
+
+    def list_gaps(self, objective_id: str) -> list[CapabilityGap]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, objective_id, missing_json, known_json, created_at
+                FROM capability_gaps
+                WHERE objective_id = ?
+                ORDER BY created_at ASC, rowid ASC
+                """,
+                (objective_id,),
+            ).fetchall()
+        return [
+            CapabilityGap(
+                str(row["id"]),
+                str(row["objective_id"]),
+                str(row["missing_json"]),
+                str(row["known_json"]),
+                str(row["created_at"]),
+            )
+            for row in rows
+        ]
+
+    def save_experiment(
+        self,
+        objective_id: str,
+        name: str,
+        hypothesis: str,
+        probe: str,
+        expected: str,
+        outcome: str,
+        success: bool,
+    ) -> Experiment:
+        if self.get_objective(objective_id) is None:
+            raise KeyError(objective_id)
+        experiment = Experiment(
+            str(uuid4()),
+            objective_id,
+            name,
+            hypothesis,
+            probe,
+            expected,
+            outcome,
+            success,
+            utc_now(),
+        )
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO experiments (
+                    id, objective_id, name, hypothesis, probe, expected, outcome, success, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    experiment.id,
+                    experiment.objective_id,
+                    experiment.name,
+                    experiment.hypothesis,
+                    experiment.probe,
+                    experiment.expected,
+                    experiment.outcome,
+                    1 if experiment.success else 0,
+                    experiment.created_at,
+                ),
+            )
+        return experiment
+
+    def list_experiments(self, objective_id: str | None = None) -> list[Experiment]:
+        with self._connect() as conn:
+            if objective_id is None:
+                rows = conn.execute(
+                    "SELECT * FROM experiments ORDER BY created_at ASC, rowid ASC"
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    """
+                    SELECT * FROM experiments
+                    WHERE objective_id = ?
+                    ORDER BY created_at ASC, rowid ASC
+                    """,
+                    (objective_id,),
+                ).fetchall()
+        return [_experiment(row) for row in rows]
+
     def list_messages(self, conversation_id: str) -> list[Message]:
         with self._connect() as conn:
             rows = conn.execute(
@@ -557,6 +704,20 @@ def _module(row: sqlite3.Row) -> ModuleRecord:
         None if error is None else str(error),
         str(row["installed_at"]),
         str(row["updated_at"]),
+    )
+
+
+def _experiment(row: sqlite3.Row) -> Experiment:
+    return Experiment(
+        str(row["id"]),
+        str(row["objective_id"]),
+        str(row["name"]),
+        str(row["hypothesis"]),
+        str(row["probe"]),
+        str(row["expected"]),
+        str(row["outcome"]),
+        bool(row["success"]),
+        str(row["created_at"]),
     )
 
 

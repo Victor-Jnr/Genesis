@@ -5,6 +5,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from genesis.api.app import build_context, create_app
+from genesis.cognition.learning import covered_gap_reply
 from genesis.capabilities.service import requirements_command
 from genesis.core.configuration.settings import DatabaseConfig, LoggingConfig, ModelConfig, Settings
 from genesis.core.model_interface.llama_cpp_backend import GenerationResult
@@ -143,7 +144,10 @@ def test_objective_installs_and_invokes_a_module(tmp_path: Path) -> None:
     _echo(tmp_path)
     install = json.dumps({"action": "install", "path": "incoming/echo"})
     invoke = json.dumps({"action": "invoke", "name": "echo", "task": "ping"})
-    context = _context(tmp_path, [PLAN, install, invoke, "The module echoed ping.", "The module echoed ping."])
+    context = _context(
+        tmp_path,
+        [covered_gap_reply(), PLAN, install, invoke, "The module echoed ping.", "The module echoed ping."],
+    )
     context.models.startup()
     objective = context.orchestrator.submit("Use the echo module")
     context.orchestrator.run_available()

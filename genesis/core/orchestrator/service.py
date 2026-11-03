@@ -6,7 +6,14 @@ import logging
 import threading
 from dataclasses import replace
 
+from genesis.capabilities.manifest import ModuleError
 from genesis.capabilities.service import ModuleService
+from genesis.cognition.learning import (
+    LearningError,
+    LearningService,
+    gap_message,
+    procedure_text,
+)
 from genesis.cognition.planner import PlanError, Planner, step_messages
 from genesis.tools.research.actions import parse_action
 from genesis.tools.research.service import ResearchService
@@ -50,6 +57,7 @@ class Orchestrator:
         self.research = research
         self.modules = modules
         self.planner = Planner(models)
+        self.learning = LearningService(settings, db, models, modules)
         self._stop = threading.Event()
         self._wake = threading.Event()
         self._thread: threading.Thread | None = None
@@ -168,7 +176,7 @@ class Orchestrator:
             final = self.planner.conclude(current.request, current.steps)
             self._mark(current, status=COMPLETED, result=final, error=None, current_step=len(current.steps))
             self._event(current.id, "completed", final[:500])
-        except PlanError as exc:
+        except (PlanError, LearningError) as exc:
             self._fail(current, str(exc))
         except ModelNotReady as exc:
             self._mark(current, status=WAITING, error=exc.detail)
@@ -180,7 +188,8 @@ class Orchestrator:
             self._fail(current, str(exc))
 
     def _perform_step(self, objective_id: str, request: str, step: StepRecord, index: int, count: int) -> str:
-        messages = step_messages(request, step, index, count)
+        context = self.learning.context_for(request, objective_id)
+        messages = step_messages(request, step, index, count, context)
         limit = self.settings.research.max_actions
         for _ in range(limit + 1):
             reply = self.models.generate(messages, temperature=0.0, max_tokens=512).content.strip()
@@ -199,6 +208,48 @@ class Orchestrator:
             messages.append({"role": "user", "content": f"Observation:\n{observation}"})
         raise PlanError(f"Step '{step.title}' used more than {limit} research actions.")
 
+    def _learn(self, current: Objective) -> None:
+        if self.db.list_gaps(current.id) or self.db.list_experiments(current.id):
+            return
+        assessment = self.learning.assess(current.request)
+        self.db.save_gap(current.id, list(assessment.missing), list(assessment.known))
+        self._event(current.id, "gap", gap_message(assessment))
+        for spec in assessment.experiments:
+            if self._stop.is_set():
+                return
+            fresh = self.db.get_objective(current.id)
+            if fresh is None or fresh.status == PAUSED:
+                return
+            try:
+                outcome = self._perform_step(
+                    current.id,
+                    current.request,
+                    StepRecord(spec.name, spec.probe),
+                    0,
+                    1,
+                )
+            except PlanError as exc:
+                outcome = str(exc)
+            success = spec.expect.casefold() in outcome.casefold()
+            self.db.save_experiment(
+                current.id,
+                spec.name,
+                spec.hypothesis,
+                spec.probe,
+                spec.expect,
+                outcome[:4000],
+                success,
+            )
+            self._event(current.id, "experiment", f"{spec.name} {'succeeded' if success else 'failed'}.")
+            if not success:
+                continue
+            try:
+                self.modules.remember(spec.name, procedure_text(spec, outcome[:4000]))
+            except ModuleError as exc:
+                self._event(current.id, "retain-failed", str(exc))
+                continue
+            self._event(current.id, "retained", spec.name)
+
     def _prepare(self, current: Objective) -> Objective:
         if current.steps:
             return self._mark(current, status=EXECUTING, error=None)
@@ -206,8 +257,13 @@ class Orchestrator:
         self._event(current.id, "planning", "Planning steps.")
         if self._stop.is_set():
             return current
-        steps = self.planner.plan(current.request)
+        self._learn(current)
         fresh = self.db.get_objective(current.id)
+        if fresh is None or fresh.status == PAUSED or self._stop.is_set():
+            return fresh or current
+        context = self.learning.context_for(fresh.request, fresh.id)
+        steps = self.planner.plan(fresh.request, context)
+        fresh = self.db.get_objective(fresh.id)
         status = PAUSED if fresh is not None and fresh.status == PAUSED else EXECUTING
         current = self._mark(current, steps=steps, current_step=0, status=status)
         self._event(current.id, "planned", f"{len(steps)} steps.")

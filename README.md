@@ -4,6 +4,8 @@ Local HTTP service for [GGUF](https://github.com/ggerganov/ggml/blob/master/docs
 
 Genesis loads a model from a folder on your machine, runs inference in-process, and stores every conversation in SQLite. The server binds to loopback. No cloud model API is required.
 
+The aim is a Gödel machine: software that proposes a change to itself, tests that change, and keeps the version that works. The model stays replaceable. Conversations, objectives, modules, and learned procedures stay in SQLite on this machine. Today Genesis can run an objective, look up public documentation, register a module, and remember a procedure that an experiment verified. It does not yet edit its own source or train weights.
+
 ![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white)
 
 ## Features
@@ -14,6 +16,7 @@ Genesis loads a model from a folder on your machine, runs inference in-process, 
 - Per-conversation history stored in SQLite.
 - Context length, sampling, GPU layers, and paths live in YAML.
 - Structured JSON logs for each request.
+- An objective names a missing capability, tries a small experiment, and saves the procedure when that trial succeeds.
 
 A model file is not included.
 
@@ -48,7 +51,7 @@ Invoke-RestMethod http://127.0.0.1:8765/health
 {
   "status": "ok",
   "venv": "C:\\git\\AI_Worker\\.venv",
-  "phase": "3"
+  "phase": "4"
 }
 ```
 
@@ -155,6 +158,14 @@ Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8765/skills `
   -Body '{"name":"greet","body":"Say hello before the task."}'
 ```
 
+## Learning
+
+Before an objective is planned, Genesis compares the request with saved skills. A skill whose name appears in the request is reused, and the experiment is not repeated. Otherwise the model names what is missing and up to `learning.max_experiments` trials. Each trial can search, install, and invoke. A trial succeeds when its expected text appears in the outcome. The successful procedure is stored as a skill and included in later plans.
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8765/objectives/<id>/experiments
+```
+
 ## HTTP API
 
 | Method | Path | Purpose |
@@ -171,6 +182,7 @@ Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8765/skills `
 | `POST` | `/objectives/{id}/pause` | Pause an objective |
 | `POST` | `/objectives/{id}/resume` | Resume a paused, waiting, or failed objective |
 | `GET` | `/objectives/{id}/resources` | Sources recorded while that objective ran |
+| `GET` | `/objectives/{id}/experiments` | Trials run while learning that objective |
 | `GET` | `/resources` | Recorded sources, newest first |
 | `GET` | `/modules` | Installed modules |
 | `POST` | `/modules/install` | Body: `{"path":"..."}`. Register a module folder inside the project |
@@ -207,6 +219,7 @@ Interactive request docs are served at [http://127.0.0.1:8765/docs](http://127.0
 | `research.allow_private_hosts` | `false` | Refuse private and loopback URLs |
 | `modules.directory` | `genesis_modules` | Installed module folders |
 | `modules.skills_directory` | `storage/skills` | Saved procedure files |
+| `learning.max_experiments` | `3` | Trials recorded before the objective is planned |
 | `identity.name` | `Genesis` | Assistant name |
 | `identity.system_prompt` | see the yaml | System message sent with each conversation |
 
@@ -245,6 +258,7 @@ genesis/                     Application package
   core/orchestrator/         Background objectives
   core/conversation.py       Conversation history
   cognition/planner.py       Step planning
+  cognition/learning.py      Missing capabilities, experiments, and retained procedures
   tools/research/            Public search, fetch, and downloads
   capabilities/              Module install, load, and skills
 genesis_modules/             Drop a module folder here
