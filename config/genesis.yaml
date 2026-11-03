@@ -43,6 +43,10 @@ modules:
 learning:
   max_experiments: 3
 
+development:
+  candidates_directory: storage/candidates
+  test_timeout_seconds: 180
+
 identity:
   name: Genesis
   system_prompt: >

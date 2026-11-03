@@ -8,6 +8,7 @@ from dataclasses import replace
 
 from genesis.capabilities.manifest import ModuleError
 from genesis.capabilities.service import ModuleService
+from genesis.development.service import DevelopmentService
 from genesis.cognition.learning import (
     LearningError,
     LearningService,
@@ -50,12 +51,14 @@ class Orchestrator:
         models: ModelService,
         research: ResearchService,
         modules: ModuleService,
+        development: DevelopmentService,
     ) -> None:
         self.settings = settings
         self.db = db
         self.models = models
         self.research = research
         self.modules = modules
+        self.development = development
         self.planner = Planner(models)
         self.learning = LearningService(settings, db, models, modules)
         self._stop = threading.Event()
@@ -201,6 +204,8 @@ class Orchestrator:
                 return text
             if action.name in {"inventory", "install", "invoke", "remember", "skills"}:
                 observation = self.modules.execute(objective_id, action)
+            elif action.name in {"inspect", "propose", "test_candidate", "compare", "retain", "archive"}:
+                observation = self.development.execute(objective_id, action)
             else:
                 observation = self.research.execute(objective_id, action)
             self._event(objective_id, action.name, observation)

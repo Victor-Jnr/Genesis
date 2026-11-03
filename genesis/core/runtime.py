@@ -24,8 +24,18 @@ def assert_project_venv() -> None:
     """Exit unless this process is the repository virtual environment."""
     expected = project_venv_python()
     actual = Path(sys.executable)
-    if os.path.normcase(str(actual)) != os.path.normcase(str(expected)):
-        raise SystemExit(
-            "Genesis only runs inside the project virtual environment. "
-            f"Use {expected}. Current interpreter: {actual}"
-        )
+    if _same_path(actual, expected):
+        return
+    raise SystemExit(
+        "Genesis only runs inside the project virtual environment. "
+        f"Use {expected}. Current interpreter: {actual}"
+    )
+
+
+def _same_path(actual: Path, expected: Path) -> bool:
+    if os.path.normcase(os.path.normpath(str(actual))) == os.path.normcase(os.path.normpath(str(expected))):
+        return True
+    try:
+        return os.path.normcase(str(actual.resolve())) == os.path.normcase(str(expected.resolve()))
+    except OSError:
+        return False

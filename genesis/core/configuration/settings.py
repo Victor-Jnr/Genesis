@@ -64,6 +64,13 @@ class ModulesConfig(BaseModel):
     skills_directory: str = "storage/skills"
 
 
+class DevelopmentConfig(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    candidates_directory: str = "storage/candidates"
+    test_timeout_seconds: float = Field(default=180, gt=0)
+
+
 class LearningConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -87,6 +94,7 @@ class Settings(BaseModel):
     research: ResearchConfig = Field(default_factory=ResearchConfig)
     modules: ModulesConfig = Field(default_factory=ModulesConfig)
     learning: LearningConfig = Field(default_factory=LearningConfig)
+    development: DevelopmentConfig = Field(default_factory=DevelopmentConfig)
     identity: IdentityConfig = Field(default_factory=IdentityConfig)
 
     def resolve_path(self, value: str, root: Path) -> Path:

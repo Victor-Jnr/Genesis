@@ -95,6 +95,30 @@ class CapabilityGap:
 
 
 @dataclass(frozen=True)
+class Proposal:
+    id: str
+    objective_id: str | None
+    path: str
+    rationale: str
+    old_text: str
+    new_text: str
+    base_sha256: str
+    created_at: str
+
+
+@dataclass(frozen=True)
+class Candidate:
+    id: str
+    proposal_id: str
+    parent_revision: str
+    directory: str
+    status: str
+    report: str
+    elapsed_ms: float | None
+    created_at: str
+
+
+@dataclass(frozen=True)
 class Experiment:
     id: str
     objective_id: str
@@ -223,6 +247,26 @@ class Database:
                 );
                 CREATE INDEX IF NOT EXISTS idx_experiments
                     ON experiments (objective_id, created_at);
+                CREATE TABLE IF NOT EXISTS proposals (
+                    id TEXT PRIMARY KEY,
+                    objective_id TEXT,
+                    path TEXT NOT NULL,
+                    rationale TEXT NOT NULL,
+                    old_text TEXT NOT NULL,
+                    new_text TEXT NOT NULL,
+                    base_sha256 TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS candidates (
+                    id TEXT PRIMARY KEY,
+                    proposal_id TEXT NOT NULL REFERENCES proposals(id),
+                    parent_revision TEXT NOT NULL,
+                    directory TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    report TEXT NOT NULL,
+                    elapsed_ms REAL,
+                    created_at TEXT NOT NULL
+                );
                 """
             )
 
@@ -649,6 +693,112 @@ class Database:
                 ).fetchall()
         return [_experiment(row) for row in rows]
 
+    def save_proposal(
+        self,
+        objective_id: str | None,
+        path: str,
+        rationale: str,
+        old_text: str,
+        new_text: str,
+        base_sha256: str,
+    ) -> Proposal:
+        proposal = Proposal(
+            str(uuid4()),
+            objective_id,
+            path,
+            rationale,
+            old_text,
+            new_text,
+            base_sha256,
+            utc_now(),
+        )
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO proposals (
+                    id, objective_id, path, rationale, old_text, new_text, base_sha256, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    proposal.id,
+                    proposal.objective_id,
+                    proposal.path,
+                    proposal.rationale,
+                    proposal.old_text,
+                    proposal.new_text,
+                    proposal.base_sha256,
+                    proposal.created_at,
+                ),
+            )
+        return proposal
+
+    def get_proposal(self, proposal_id: str) -> Proposal | None:
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM proposals WHERE id = ?", (proposal_id,)).fetchone()
+        return None if row is None else _proposal(row)
+
+    def save_candidate(self, proposal_id: str, parent_revision: str, directory: str) -> Candidate:
+        if self.get_proposal(proposal_id) is None:
+            raise KeyError(proposal_id)
+        candidate = Candidate(
+            str(uuid4()),
+            proposal_id,
+            parent_revision,
+            directory,
+            "created",
+            "",
+            None,
+            utc_now(),
+        )
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO candidates (
+                    id, proposal_id, parent_revision, directory, status, report, elapsed_ms, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    candidate.id,
+                    candidate.proposal_id,
+                    candidate.parent_revision,
+                    candidate.directory,
+                    candidate.status,
+                    candidate.report,
+                    candidate.elapsed_ms,
+                    candidate.created_at,
+                ),
+            )
+        return candidate
+
+    def get_candidate(self, candidate_id: str) -> Candidate | None:
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM candidates WHERE id = ?", (candidate_id,)).fetchone()
+        return None if row is None else _candidate(row)
+
+    def list_candidates(self) -> list[Candidate]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM candidates ORDER BY created_at ASC, rowid ASC"
+            ).fetchall()
+        return [_candidate(row) for row in rows]
+
+    def finish_candidate(self, candidate_id: str, status: str, report: str, elapsed_ms: float | None) -> Candidate:
+        if self.get_candidate(candidate_id) is None:
+            raise KeyError(candidate_id)
+        with self._connect() as conn:
+            conn.execute(
+                """
+                UPDATE candidates
+                SET status = ?, report = ?, elapsed_ms = ?
+                WHERE id = ?
+                """,
+                (status, report, elapsed_ms, candidate_id),
+            )
+        stored = self.get_candidate(candidate_id)
+        if stored is None:
+            raise KeyError(candidate_id)
+        return stored
+
     def list_messages(self, conversation_id: str) -> list[Message]:
         with self._connect() as conn:
             rows = conn.execute(
@@ -704,6 +854,34 @@ def _module(row: sqlite3.Row) -> ModuleRecord:
         None if error is None else str(error),
         str(row["installed_at"]),
         str(row["updated_at"]),
+    )
+
+
+def _proposal(row: sqlite3.Row) -> Proposal:
+    objective_id = row["objective_id"]
+    return Proposal(
+        str(row["id"]),
+        None if objective_id is None else str(objective_id),
+        str(row["path"]),
+        str(row["rationale"]),
+        str(row["old_text"]),
+        str(row["new_text"]),
+        str(row["base_sha256"]),
+        str(row["created_at"]),
+    )
+
+
+def _candidate(row: sqlite3.Row) -> Candidate:
+    elapsed = row["elapsed_ms"]
+    return Candidate(
+        str(row["id"]),
+        str(row["proposal_id"]),
+        str(row["parent_revision"]),
+        str(row["directory"]),
+        str(row["status"]),
+        str(row["report"]),
+        None if elapsed is None else float(elapsed),
+        str(row["created_at"]),
     )
 
 

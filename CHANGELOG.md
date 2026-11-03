@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.6.0
+
+A source change can be written into a separate candidate, tested there, and kept in an archive. The live files stay as they were, so the previous version remains recoverable.
+
 ## 0.5.1
 
 The capability inventory includes install, invoke, remember, and skills. The Windows installer tries a CUDA 13 wheel of `llama-cpp-python` before the older CUDA 12.4 wheel and the CPU wheel.

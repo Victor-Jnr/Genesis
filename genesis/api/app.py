@@ -14,6 +14,7 @@ from fastapi.responses import StreamingResponse
 
 from genesis import PHASE, __version__
 from genesis.api.schemas import (
+    CandidateResponse,
     CapabilityResponse,
     ChatRequest,
     ChatResponse,
@@ -28,6 +29,7 @@ from genesis.api.schemas import (
     ModuleResponse,
     ObjectiveRequest,
     ObjectiveResponse,
+    ProposalRequest,
     ResourceResponse,
     SkillRequest,
     SkillResponse,
@@ -35,14 +37,24 @@ from genesis.api.schemas import (
     StepResponse,
 )
 from genesis.capabilities.manifest import ModuleError
-from genesis.capabilities.service import ModuleService
+from genesis.capabilities.service import BUILTIN_CAPABILITIES, ModuleService
+from genesis.development.service import DevelopmentService, ModificationError
 from genesis.core.conversation import ConversationService, UnknownConversation
 from genesis.core.model_interface.llama_cpp_backend import ModelLoadError
 from genesis.core.model_interface.service import ConfigPinned, ModelNotReady, ModelService, ModelSnapshot
 from genesis.core.orchestrator.service import ObjectiveStateError, Orchestrator, UnknownObjective
 from genesis.core.runtime import repo_root
 from genesis.monitoring.logging import log_event
-from genesis.storage.database import Database, Experiment, ModuleRecord, Objective, ObjectiveEvent, Resource, Skill
+from genesis.storage.database import (
+    Candidate,
+    Database,
+    Experiment,
+    ModuleRecord,
+    Objective,
+    ObjectiveEvent,
+    Resource,
+    Skill,
+)
 from genesis.tools.research.service import ResearchService
 
 log = logging.getLogger("genesis")
@@ -168,6 +180,56 @@ def create_app(settings_root: PathContext) -> FastAPI:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         return {"module": module_id, "result": result}
 
+    @app.get("/source")
+    def read_source(path: str) -> dict[str, str]:
+        try:
+            text = app.state.context.development.inspect(path)
+        except ModificationError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"path": path, "text": text}
+
+    @app.post("/proposals", response_model=CandidateResponse)
+    def create_proposal(body: ProposalRequest) -> CandidateResponse:
+        try:
+            _proposal, candidate = app.state.context.development.propose(
+                None,
+                body.path,
+                body.rationale,
+                body.old,
+                body.text,
+            )
+        except ModificationError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return _candidate_response(app.state.context.db, candidate)
+
+    @app.get("/candidates", response_model=list[CandidateResponse])
+    def list_candidates() -> list[CandidateResponse]:
+        database = app.state.context.db
+        return [_candidate_response(database, item) for item in database.list_candidates()]
+
+    @app.get("/candidates/{candidate_id}", response_model=CandidateResponse)
+    def get_candidate(candidate_id: str) -> CandidateResponse:
+        candidate = app.state.context.db.get_candidate(candidate_id)
+        if candidate is None:
+            raise HTTPException(status_code=404, detail="Candidate not found.")
+        return _candidate_response(app.state.context.db, candidate)
+
+    @app.post("/candidates/{candidate_id}/test", response_model=CandidateResponse)
+    def test_candidate(candidate_id: str) -> CandidateResponse:
+        try:
+            candidate = app.state.context.development.test(candidate_id)
+        except ModificationError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return _candidate_response(app.state.context.db, candidate)
+
+    @app.post("/candidates/{candidate_id}/retain", response_model=CandidateResponse)
+    def retain_candidate(candidate_id: str) -> CandidateResponse:
+        try:
+            candidate = app.state.context.development.retain(candidate_id)
+        except ModificationError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return _candidate_response(app.state.context.db, candidate)
+
     @app.get("/capabilities", response_model=list[CapabilityResponse])
     def capabilities() -> list[CapabilityResponse]:
         return _capabilities(app.state.context.modules)
@@ -285,6 +347,7 @@ class PathContext:
         models: ModelService,
         research: ResearchService,
         modules: ModuleService,
+        development: DevelopmentService,
     ) -> None:
         self.root = root
         self.settings = settings
@@ -292,18 +355,20 @@ class PathContext:
         self.models = models
         self.research = research
         self.modules = modules
+        self.development = development
         self.conversations = ConversationService(settings, db, models)
-        self.orchestrator = Orchestrator(settings, db, models, research, modules)
+        self.orchestrator = Orchestrator(settings, db, models, research, modules, development)
 
 
-def build_context(root, settings, backend, http=None, module_runner=None) -> PathContext:
+def build_context(root, settings, backend, http=None, module_runner=None, candidate_runner=None) -> PathContext:
     db_path = settings.resolve_path(settings.database.path, root)
     db = Database(db_path)
     db.migrate()
     models = ModelService(settings, db, backend, root)
     research = ResearchService(settings, db, root, http)
     modules = ModuleService(settings, db, root, module_runner)
-    return PathContext(root, settings, db, models, research, modules)
+    development = DevelopmentService(settings, db, root, candidate_runner)
+    return PathContext(root, settings, db, models, research, modules, development)
 
 
 def build_runtime_context(backend=None) -> PathContext:
@@ -419,21 +484,26 @@ def _skill_response(skill: Skill) -> SkillResponse:
     )
 
 
+def _candidate_response(database: Database, candidate: Candidate) -> CandidateResponse:
+    proposal = database.get_proposal(candidate.proposal_id)
+    return CandidateResponse(
+        id=candidate.id,
+        proposal_id=candidate.proposal_id,
+        parent_revision=candidate.parent_revision,
+        directory=candidate.directory,
+        status=candidate.status,
+        report=candidate.report,
+        elapsed_ms=candidate.elapsed_ms,
+        created_at=candidate.created_at,
+        path=None if proposal is None else proposal.path,
+        rationale=None if proposal is None else proposal.rationale,
+    )
+
+
 def _capabilities(modules: ModuleService) -> list[CapabilityResponse]:
     items = [
         CapabilityResponse(name=name, kind="built-in", status="active", description=description)
-        for name, description in (
-            ("search", "Search the public web"),
-            ("repositories", "Search GitHub and GitLab"),
-            ("package", "Read a Python package from PyPI"),
-            ("fetch", "Fetch a public page"),
-            ("read", "Read documentation and list install requirements"),
-            ("download", "Download a public file"),
-            ("install", "Register a module folder that is already inside the project"),
-            ("invoke", "Call an installed module"),
-            ("remember", "Save a procedure"),
-            ("skills", "List saved procedures"),
-        )
+        for name, description in BUILTIN_CAPABILITIES
     ]
     for module in modules.db.list_modules():
         items.append(

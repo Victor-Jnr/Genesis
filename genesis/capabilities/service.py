@@ -15,7 +15,7 @@ from genesis.storage.database import Database, ModuleRecord, Skill
 from genesis.tools.research.actions import ResearchAction
 
 _SKILL_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,60}$")
-_BUILTINS = (
+BUILTIN_CAPABILITIES = (
     ("search", "Search the public web"),
     ("repositories", "Search GitHub and GitLab"),
     ("package", "Read a Python package from PyPI"),
@@ -26,6 +26,12 @@ _BUILTINS = (
     ("invoke", "Call an installed module"),
     ("remember", "Save a procedure"),
     ("skills", "List saved procedures"),
+    ("inspect", "Read a project source file"),
+    ("propose", "Write a candidate change without replacing the live file"),
+    ("test_candidate", "Run the tests in a candidate copy"),
+    ("compare", "Compare a candidate with the live version"),
+    ("retain", "Keep a passing candidate without replacing the live tree"),
+    ("archive", "List candidate versions"),
 )
 
 
@@ -139,7 +145,7 @@ class ModuleService:
 
     def inventory(self) -> str:
         lines = ["Capabilities:"]
-        for name, description in _BUILTINS:
+        for name, description in BUILTIN_CAPABILITIES:
             lines.append(f"- {name} (built-in, active) {description}")
         for module in self.db.list_modules():
             lines.append(
