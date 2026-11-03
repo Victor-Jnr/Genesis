@@ -40,6 +40,9 @@ modules:
   directory: genesis_modules
   skills_directory: storage/skills
 
+learning:
+  max_experiments: 3
+
 identity:
   name: Genesis
   system_prompt: >

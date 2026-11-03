@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.0
+
+An unfamiliar objective names the capability it lacks, tries that capability, and stores the procedure when the expected result appears. A later objective that names the saved skill reuses it instead of repeating the trial.
+
 ## 0.4.0
 
 Modules can be registered from a project folder, installed into the project virtual environment, and called without changing the core. The registration and any saved skill remain after a restart.

@@ -6,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from genesis.api.app import build_context, create_app
+from genesis.cognition.learning import covered_gap_reply
 from genesis.core.configuration.settings import DatabaseConfig, LoggingConfig, ModelConfig, ResearchConfig, Settings
 from genesis.core.model_interface.llama_cpp_backend import GenerationResult
 from genesis.tools.research.actions import parse_action
@@ -206,7 +207,11 @@ def test_objective_searches_before_finishing_a_step(tmp_path: Path) -> None:
         headers={"content-type": "text/html"},
     )
     action = json.dumps({"action": "search", "query": "httpx"})
-    context = _open(tmp_path, [PLAN, action, "httpx is an HTTP client.", "httpx is an HTTP client."], http)
+    context = _open(
+        tmp_path,
+        [covered_gap_reply(), PLAN, action, "httpx is an HTTP client.", "httpx is an HTTP client."],
+        http,
+    )
     context.models.startup()
     objective = context.orchestrator.submit("Find what httpx is")
     context.orchestrator.run_available()

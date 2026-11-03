@@ -6,6 +6,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from genesis.api.app import build_context, create_app
+from genesis.cognition.learning import covered_gap_reply
 from genesis.cognition.planner import parse_plan
 from genesis.core.configuration.settings import DatabaseConfig, LoggingConfig, ModelConfig, Settings
 from genesis.core.model_interface.llama_cpp_backend import GenerationResult
@@ -58,7 +59,7 @@ def _context(tmp_path: Path, names: list[str], replies: list[str]):
 
 
 def _success_replies() -> list[str]:
-    return [PLAN, "The request is to add.", "The answer is 4.", "4"]
+    return [covered_gap_reply(), PLAN, "The request is to add.", "The answer is 4.", "4"]
 
 
 def test_parse_plan_reads_json_and_strips_thinking() -> None:
@@ -76,11 +77,23 @@ def test_objective_runs_to_completion_and_records_events(tmp_path: Path) -> None
     assert stored.status == "completed"
     assert stored.result == "4"
     assert [step.result for step in stored.steps] == ["The request is to add.", "The answer is 4."]
-    assert [event.kind for event in events] == ["created", "planning", "planned", "step", "step", "completed"]
+    assert [event.kind for event in events] == [
+        "created",
+        "planning",
+        "gap",
+        "planned",
+        "step",
+        "step",
+        "completed",
+    ]
 
 
 def test_planner_asks_again_when_the_first_reply_is_not_json(tmp_path: Path) -> None:
-    context = _context(tmp_path, ["demo.gguf"], ["pong", *_success_replies()])
+    context = _context(
+        tmp_path,
+        ["demo.gguf"],
+        [covered_gap_reply(), "pong", PLAN, "The request is to add.", "The answer is 4.", "4"],
+    )
     context.models.startup()
     objective = context.orchestrator.submit("Reply with the single word pong.")
     context.orchestrator.run_available()
@@ -90,7 +103,7 @@ def test_planner_asks_again_when_the_first_reply_is_not_json(tmp_path: Path) -> 
 
 
 def test_invalid_plan_fails_the_objective(tmp_path: Path) -> None:
-    context = _context(tmp_path, ["demo.gguf"], ["not a plan"])
+    context = _context(tmp_path, ["demo.gguf"], [covered_gap_reply(), "not a plan"])
     context.models.startup()
     objective = context.orchestrator.submit("Do something")
     context.orchestrator.run_available()

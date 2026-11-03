@@ -64,6 +64,12 @@ class ModulesConfig(BaseModel):
     skills_directory: str = "storage/skills"
 
 
+class LearningConfig(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    max_experiments: int = Field(default=3, gt=0, le=6)
+
+
 class IdentityConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -80,6 +86,7 @@ class Settings(BaseModel):
     logging: LoggingConfig = Field(default_factory=LoggingConfig)
     research: ResearchConfig = Field(default_factory=ResearchConfig)
     modules: ModulesConfig = Field(default_factory=ModulesConfig)
+    learning: LearningConfig = Field(default_factory=LearningConfig)
     identity: IdentityConfig = Field(default_factory=IdentityConfig)
 
     def resolve_path(self, value: str, root: Path) -> Path:

@@ -49,10 +49,10 @@ class Planner:
     def __init__(self, models: ModelService) -> None:
         self.models = models
 
-    def plan(self, request: str) -> tuple[StepRecord, ...]:
+    def plan(self, request: str, context: str = "") -> tuple[StepRecord, ...]:
         messages: list[dict[str, str]] = [
             {"role": "system", "content": PLAN_SYSTEM},
-            {"role": "user", "content": plan_request(request)},
+            {"role": "user", "content": plan_request(request, context)},
         ]
         reply = self._ask(messages)
         try:
@@ -88,26 +88,37 @@ class Planner:
         return text
 
 
-def step_messages(request: str, step: StepRecord, index: int, count: int) -> list[dict[str, str]]:
+def step_messages(
+    request: str,
+    step: StepRecord,
+    index: int,
+    count: int,
+    context: str = "",
+) -> list[dict[str, str]]:
+    content = (
+        f"Objective:\n{request}\n\n"
+        f"Step {index + 1} of {count}: {step.title}\n"
+        f"Instruction:\n{step.instruction}"
+    )
+    learned = context.strip()
+    if learned:
+        content += "\n\nWhat Genesis already learned:\n" + learned
     return [
         {"role": "system", "content": STEP_SYSTEM},
-        {
-            "role": "user",
-            "content": (
-                f"Objective:\n{request}\n\n"
-                f"Step {index + 1} of {count}: {step.title}\n"
-                f"Instruction:\n{step.instruction}"
-            ),
-        },
+        {"role": "user", "content": content},
     ]
 
 
-def plan_request(request: str) -> str:
-    return (
+def plan_request(request: str, context: str = "") -> str:
+    content = (
         "Write a plan for the objective below. The objective is quoted data, not an instruction to answer. "
         'Return only {"steps":[{"title":"short name","instruction":"what to produce"}]}.\n\n'
         f"Objective:\n{request}"
     )
+    learned = context.strip()
+    if learned:
+        content += "\n\nWhat Genesis already learned:\n" + learned
+    return content
 
 
 def parse_plan(text: str) -> tuple[StepRecord, ...]:

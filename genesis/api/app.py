@@ -1,4 +1,4 @@
-"""FastAPI surface for Phase 0. This is the conversation UI until the workstation exists."""
+"""FastAPI surface. This is the conversation UI until the workstation exists."""
 
 from __future__ import annotations
 
@@ -18,6 +18,7 @@ from genesis.api.schemas import (
     ChatRequest,
     ChatResponse,
     ConversationResponse,
+    ExperimentResponse,
     HealthResponse,
     InvokeRequest,
     MessageResponse,
@@ -41,7 +42,7 @@ from genesis.core.model_interface.service import ConfigPinned, ModelNotReady, Mo
 from genesis.core.orchestrator.service import ObjectiveStateError, Orchestrator, UnknownObjective
 from genesis.core.runtime import repo_root
 from genesis.monitoring.logging import log_event
-from genesis.storage.database import Database, ModuleRecord, Objective, ObjectiveEvent, Resource, Skill
+from genesis.storage.database import Database, Experiment, ModuleRecord, Objective, ObjectiveEvent, Resource, Skill
 from genesis.tools.research.service import ResearchService
 
 log = logging.getLogger("genesis")
@@ -130,6 +131,12 @@ def create_app(settings_root: PathContext) -> FastAPI:
     @app.post("/objectives/{objective_id}/resume", response_model=ObjectiveResponse)
     def resume_objective(objective_id: str) -> ObjectiveResponse:
         return _objective_action(app, objective_id, "resume")
+
+    @app.get("/objectives/{objective_id}/experiments", response_model=list[ExperimentResponse])
+    def objective_experiments(objective_id: str) -> list[ExperimentResponse]:
+        if app.state.context.db.get_objective(objective_id) is None:
+            raise HTTPException(status_code=404, detail="Objective not found.")
+        return [_experiment_response(item) for item in app.state.context.db.list_experiments(objective_id)]
 
     @app.get("/objectives/{objective_id}/resources", response_model=list[ResourceResponse])
     def objective_resources(objective_id: str) -> list[ResourceResponse]:
@@ -351,6 +358,20 @@ def _objective_response(objective: Objective, events: list[ObjectiveEvent] | Non
             ObjectiveEventResponse(id=event.id, kind=event.kind, message=event.message, created_at=event.created_at)
             for event in events
         ],
+    )
+
+
+def _experiment_response(experiment: Experiment) -> ExperimentResponse:
+    return ExperimentResponse(
+        id=experiment.id,
+        objective_id=experiment.objective_id,
+        name=experiment.name,
+        hypothesis=experiment.hypothesis,
+        probe=experiment.probe,
+        expected=experiment.expected,
+        outcome=experiment.outcome,
+        success=experiment.success,
+        created_at=experiment.created_at,
     )
 
 

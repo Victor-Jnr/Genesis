@@ -110,6 +110,18 @@ class CapabilityResponse(BaseModel):
     version: str | None = None
 
 
+class ExperimentResponse(BaseModel):
+    id: str
+    objective_id: str
+    name: str
+    hypothesis: str
+    probe: str
+    expected: str
+    outcome: str
+    success: bool
+    created_at: str
+
+
 class ResourceResponse(BaseModel):
     id: str
     objective_id: str | None
