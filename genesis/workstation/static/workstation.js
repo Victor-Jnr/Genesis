@@ -191,22 +191,37 @@ function renderEvents(slot, events, emptyMessage) {
 function bindChat() {
   const form = document.querySelector("#chat-form");
   if (!form) return;
+  const button = form.querySelector("button");
+  const field = form.querySelector("textarea");
   let conversationId = null;
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
-    const message = new FormData(form).get("message");
+    const message = String(new FormData(form).get("message") || "").trim();
+    if (!message || button.disabled) return;
+    const slot = document.querySelector("#chat-log");
+    clear(document.querySelector("[data-error]"));
+    slot.append(text("h3", "user"), text("pre", message), text("p", "Message sent. Waiting for a reply.", "waiting"));
+    button.disabled = true;
+    field.disabled = true;
+    button.textContent = "Sending";
     try {
       const result = await post("/chat", { message, conversation_id: conversationId });
       conversationId = result.conversation_id;
       const conversation = await api(`/conversations/${conversationId}`);
-      const slot = document.querySelector("#chat-log");
       clear(slot);
       (conversation.messages || []).forEach((item) => {
         slot.append(text("h3", item.role), text("pre", item.content));
       });
       form.reset();
     } catch (error) {
+      const waiting = slot.querySelector(".waiting");
+      if (waiting) waiting.textContent = "The reply did not arrive.";
       showError(error);
+    } finally {
+      button.disabled = false;
+      field.disabled = false;
+      button.textContent = "Send";
+      field.focus();
     }
   });
 }

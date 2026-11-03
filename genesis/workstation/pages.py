@@ -16,7 +16,7 @@ _LAYOUT = Template(
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Genesis — $title</title>
-  <link rel="stylesheet" href="/workstation/assets/workstation.css?v=2">
+  <link rel="stylesheet" href="/workstation/assets/workstation.css?v=3">
 </head>
 <body data-page="$page">
   <div class="shell">
@@ -32,7 +32,7 @@ _LAYOUT = Template(
       $body
     </main>
   </div>
-  <script src="/workstation/assets/workstation.js?v=2"></script>
+  <script src="/workstation/assets/workstation.js?v=3"></script>
 </body>
 </html>
 """
@@ -66,7 +66,7 @@ def register_workstation(app: FastAPI) -> None:
                 <textarea id="chat-message" name="message" required></textarea>
                 <button type="submit">Send</button>
               </form>
-              <div id="chat-log"></div>
+              <div id="chat-log" aria-live="polite"></div>
             </section>
             <section class="block">
               <form id="objective-form">
