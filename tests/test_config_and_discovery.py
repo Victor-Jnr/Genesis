@@ -27,6 +27,7 @@ def test_shipped_config_loads_phase0_defaults(monkeypatch: pytest.MonkeyPatch) -
     assert settings.modules.directory == "genesis_modules"
     assert settings.learning.max_experiments == 3
     assert settings.development.candidates_directory == "storage/candidates"
+    assert settings.evolution.benchmark == "tests"
 
 
 def test_yaml_and_env_override_without_code_changes(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

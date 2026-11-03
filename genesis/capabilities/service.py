@@ -32,6 +32,10 @@ BUILTIN_CAPABILITIES = (
     ("compare", "Compare a candidate with the live version"),
     ("retain", "Keep a passing candidate without replacing the live tree"),
     ("archive", "List candidate versions"),
+    ("lineage", "List generations and the selected parent"),
+    ("evaluate", "Measure a generation on the benchmark"),
+    ("select", "Choose a parent by success and elapsed time"),
+    ("revisit", "Read a file from an earlier generation"),
 )
 
 

@@ -115,6 +115,24 @@ class ProposalRequest(BaseModel):
     rationale: str = Field(min_length=1)
     old: str = Field(min_length=1)
     text: str = Field(min_length=1)
+    parent: str | None = None
+
+
+class EvaluateRequest(BaseModel):
+    target: str = "live"
+    benchmark: str | None = None
+
+
+class GenerationResponse(BaseModel):
+    id: str
+    candidate_id: str | None
+    parent_id: str | None
+    label: str
+    status: str
+    created_at: str
+    benchmark: str | None = None
+    success: float | None = None
+    elapsed_ms: float | None = None
 
 
 class CandidateResponse(BaseModel):
@@ -128,6 +146,7 @@ class CandidateResponse(BaseModel):
     created_at: str
     path: str | None = None
     rationale: str | None = None
+    generation_id: str | None = None
 
 
 class ExperimentResponse(BaseModel):

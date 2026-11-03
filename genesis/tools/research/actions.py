@@ -24,6 +24,10 @@ ACTIONS = {
     "compare",
     "retain",
     "archive",
+    "lineage",
+    "evaluate",
+    "select",
+    "revisit",
     "finish",
 }
 
@@ -40,6 +44,7 @@ class ResearchAction:
     text: str = ""
     old: str = ""
     rationale: str = ""
+    parent: str = ""
 
 
 def parse_action(text: str) -> ResearchAction | None:
@@ -67,4 +72,5 @@ def parse_action(text: str) -> ResearchAction | None:
         text=str(payload.get("text") or payload.get("new") or "").strip(),
         old=str(payload.get("old") or "").strip(),
         rationale=str(payload.get("rationale") or "").strip(),
+        parent=str(payload.get("parent") or "").strip(),
     )

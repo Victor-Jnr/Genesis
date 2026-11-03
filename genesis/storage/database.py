@@ -119,6 +119,36 @@ class Candidate:
 
 
 @dataclass(frozen=True)
+class Generation:
+    id: str
+    candidate_id: str | None
+    parent_id: str | None
+    label: str
+    status: str
+    created_at: str
+
+
+@dataclass(frozen=True)
+class Evaluation:
+    id: str
+    generation_id: str
+    benchmark: str
+    success: float
+    elapsed_ms: float | None
+    report: str
+    created_at: str
+
+
+@dataclass(frozen=True)
+class Selection:
+    id: str
+    benchmark: str
+    generation_id: str
+    reason: str
+    created_at: str
+
+
+@dataclass(frozen=True)
 class Experiment:
     id: str
     objective_id: str
@@ -265,6 +295,32 @@ class Database:
                     status TEXT NOT NULL,
                     report TEXT NOT NULL,
                     elapsed_ms REAL,
+                    created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS generations (
+                    id TEXT PRIMARY KEY,
+                    candidate_id TEXT REFERENCES candidates(id),
+                    parent_id TEXT,
+                    label TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS evaluations (
+                    id TEXT PRIMARY KEY,
+                    generation_id TEXT NOT NULL REFERENCES generations(id),
+                    benchmark TEXT NOT NULL,
+                    success REAL NOT NULL,
+                    elapsed_ms REAL,
+                    report TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                );
+                CREATE INDEX IF NOT EXISTS idx_evaluations
+                    ON evaluations (generation_id, benchmark, created_at);
+                CREATE TABLE IF NOT EXISTS selections (
+                    id TEXT PRIMARY KEY,
+                    benchmark TEXT NOT NULL,
+                    generation_id TEXT NOT NULL REFERENCES generations(id),
+                    reason TEXT NOT NULL,
                     created_at TEXT NOT NULL
                 );
                 """
@@ -799,6 +855,150 @@ class Database:
             raise KeyError(candidate_id)
         return stored
 
+    def save_generation(
+        self,
+        candidate_id: str | None,
+        parent_id: str | None,
+        label: str,
+        status: str,
+    ) -> Generation:
+        generation = Generation(str(uuid4()), candidate_id, parent_id, label, status, utc_now())
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO generations (id, candidate_id, parent_id, label, status, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    generation.id,
+                    generation.candidate_id,
+                    generation.parent_id,
+                    generation.label,
+                    generation.status,
+                    generation.created_at,
+                ),
+            )
+        return generation
+
+    def get_generation(self, generation_id: str) -> Generation | None:
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM generations WHERE id = ?", (generation_id,)).fetchone()
+        return None if row is None else _generation(row)
+
+    def get_generation_for_candidate(self, candidate_id: str) -> Generation | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT * FROM generations
+                WHERE candidate_id = ?
+                ORDER BY created_at ASC, rowid ASC
+                LIMIT 1
+                """,
+                (candidate_id,),
+            ).fetchone()
+        return None if row is None else _generation(row)
+
+    def list_generations(self) -> list[Generation]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM generations ORDER BY created_at ASC, rowid ASC"
+            ).fetchall()
+        return [_generation(row) for row in rows]
+
+    def set_generation_status(self, generation_id: str, status: str) -> Generation:
+        if self.get_generation(generation_id) is None:
+            raise KeyError(generation_id)
+        with self._connect() as conn:
+            conn.execute("UPDATE generations SET status = ? WHERE id = ?", (status, generation_id))
+        stored = self.get_generation(generation_id)
+        if stored is None:
+            raise KeyError(generation_id)
+        return stored
+
+    def save_evaluation(
+        self,
+        generation_id: str,
+        benchmark: str,
+        success: float,
+        elapsed_ms: float | None,
+        report: str,
+    ) -> Evaluation:
+        if self.get_generation(generation_id) is None:
+            raise KeyError(generation_id)
+        evaluation = Evaluation(
+            str(uuid4()),
+            generation_id,
+            benchmark,
+            success,
+            elapsed_ms,
+            report,
+            utc_now(),
+        )
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO evaluations (
+                    id, generation_id, benchmark, success, elapsed_ms, report, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    evaluation.id,
+                    evaluation.generation_id,
+                    evaluation.benchmark,
+                    evaluation.success,
+                    evaluation.elapsed_ms,
+                    evaluation.report,
+                    evaluation.created_at,
+                ),
+            )
+        return evaluation
+
+    def latest_evaluation(self, generation_id: str, benchmark: str) -> Evaluation | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT * FROM evaluations
+                WHERE generation_id = ? AND benchmark = ?
+                ORDER BY created_at DESC, rowid DESC
+                LIMIT 1
+                """,
+                (generation_id, benchmark),
+            ).fetchone()
+        return None if row is None else _evaluation(row)
+
+    def save_selection(self, benchmark: str, generation_id: str, reason: str) -> Selection:
+        if self.get_generation(generation_id) is None:
+            raise KeyError(generation_id)
+        selection = Selection(str(uuid4()), benchmark, generation_id, reason, utc_now())
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO selections (id, benchmark, generation_id, reason, created_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    selection.id,
+                    selection.benchmark,
+                    selection.generation_id,
+                    selection.reason,
+                    selection.created_at,
+                ),
+            )
+        return selection
+
+    def latest_selection(self, benchmark: str) -> Selection | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT * FROM selections
+                WHERE benchmark = ?
+                ORDER BY created_at DESC, rowid DESC
+                LIMIT 1
+                """,
+                (benchmark,),
+            ).fetchone()
+        return None if row is None else _selection(row)
+
     def list_messages(self, conversation_id: str) -> list[Message]:
         with self._connect() as conn:
             rows = conn.execute(
@@ -881,6 +1081,42 @@ def _candidate(row: sqlite3.Row) -> Candidate:
         str(row["status"]),
         str(row["report"]),
         None if elapsed is None else float(elapsed),
+        str(row["created_at"]),
+    )
+
+
+def _generation(row: sqlite3.Row) -> Generation:
+    candidate_id = row["candidate_id"]
+    parent_id = row["parent_id"]
+    return Generation(
+        str(row["id"]),
+        None if candidate_id is None else str(candidate_id),
+        None if parent_id is None else str(parent_id),
+        str(row["label"]),
+        str(row["status"]),
+        str(row["created_at"]),
+    )
+
+
+def _evaluation(row: sqlite3.Row) -> Evaluation:
+    elapsed = row["elapsed_ms"]
+    return Evaluation(
+        str(row["id"]),
+        str(row["generation_id"]),
+        str(row["benchmark"]),
+        float(row["success"]),
+        None if elapsed is None else float(elapsed),
+        str(row["report"]),
+        str(row["created_at"]),
+    )
+
+
+def _selection(row: sqlite3.Row) -> Selection:
+    return Selection(
+        str(row["id"]),
+        str(row["benchmark"]),
+        str(row["generation_id"]),
+        str(row["reason"]),
         str(row["created_at"]),
     )
 

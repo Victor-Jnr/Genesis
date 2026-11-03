@@ -35,8 +35,13 @@ STEP_SYSTEM = (
     '{"action":"propose","path":"...","old":"exact text","text":"replacement","rationale":"..."}, '
     '{"action":"test_candidate","name":"candidate id"}, '
     '{"action":"compare","name":"candidate id"}, {"action":"retain","name":"candidate id"}, '
-    '{"action":"archive"}, '
+    '{"action":"archive"}, {"action":"lineage"}, '
+    '{"action":"evaluate","name":"candidate or generation id"}, '
+    '{"action":"select","name":"tests"}, '
+    '{"action":"revisit","name":"generation id","path":"..."}, '
     '{"action":"finish","result":"..."}. '
+    "propose can include \"parent\" as a generation id. "
+    "select keeps every generation and names one parent. "
     "propose writes a separate candidate and leaves the live file unchanged. "
     "After an observation, send the next action or the step result."
 )

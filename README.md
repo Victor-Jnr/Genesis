@@ -4,7 +4,7 @@ Local HTTP service for [GGUF](https://github.com/ggerganov/ggml/blob/master/docs
 
 Genesis loads a model from a folder on your machine, runs inference in-process, and stores every conversation in SQLite. The server binds to loopback. No cloud model API is required.
 
-The aim is a Darwin Gödel Machine: software that proposes a change to itself, tests that change, and keeps the version that works. The model stays replaceable. Conversations, objectives, modules, and learned procedures stay in SQLite on this machine. Today Genesis can run an objective, look up public documentation, register a module, remember a verified procedure, and write a proposed source change into a separate candidate. A candidate is tested on its own. The live source stays in place, and weight training is not built.
+The aim is a Darwin Gödel Machine: software that proposes a change to itself, tests that change, and keeps the version that works. The model stays replaceable. Conversations, objectives, modules, and learned procedures stay in SQLite on this machine. Today Genesis can run an objective, look up public documentation, register a module, remember a verified procedure, and keep more than one tested source generation. A parent is chosen by task success and then by elapsed time. The live source stays in place, and weight training is not built.
 
 ![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white)
 
@@ -51,7 +51,7 @@ Invoke-RestMethod http://127.0.0.1:8765/health
 {
   "status": "ok",
   "venv": "C:\\git\\AI_Worker\\.venv",
-  "phase": "5"
+  "phase": "6"
 }
 ```
 
@@ -172,7 +172,7 @@ On 3 November 2026, `Qwen3.5-9B-UD-IQ2_XXS.gguf` ran with `n_gpu_layers: -1` on 
 
 ## Candidates
 
-Genesis can read its own source, write a proposed change into a separate copy, and run that copy's tests with the project virtual environment. The live files are not replaced. A passing candidate can be retained. Earlier candidates stay on disk under `storage/candidates/`.
+Genesis can read its own source, write a proposed change into a separate copy, and run that copy's tests with the project virtual environment. The live files are not replaced. A passing candidate can be retained. Every tested generation stays in the archive, including ones that were not selected. Selection compares task success first and elapsed time second. `GET /archive/{id}/source` reads a file from an earlier generation, and a proposal can name that generation as `parent`.
 
 ```powershell
 Invoke-RestMethod "http://127.0.0.1:8765/source?path=genesis/__init__.py"
@@ -201,6 +201,12 @@ Invoke-RestMethod "http://127.0.0.1:8765/source?path=genesis/__init__.py"
 | `GET` | `/candidates/{id}` | One candidate and its test report |
 | `POST` | `/candidates/{id}/test` | Run the candidate's tests |
 | `POST` | `/candidates/{id}/retain` | Keep a passing candidate. The live tree stays unchanged |
+| `POST` | `/candidates/{id}/evaluate` | Record task success and elapsed time for that generation |
+| `GET` | `/archive` | Generations, parents, and the latest benchmark scores |
+| `GET` | `/archive/{id}` | One generation |
+| `GET` | `/archive/{id}/source` | Query `path`. Read a file from that generation |
+| `POST` | `/archive/evaluate` | Body: `{"target":"live","benchmark":"tests"}` |
+| `POST` | `/archive/select` | Choose a parent. Query `benchmark`. Other generations stay |
 | `GET` | `/resources` | Recorded sources, newest first |
 | `GET` | `/modules` | Installed modules |
 | `POST` | `/modules/install` | Body: `{"path":"..."}`. Register a module folder inside the project |
@@ -240,6 +246,7 @@ Interactive request docs are served at [http://127.0.0.1:8765/docs](http://127.0
 | `learning.max_experiments` | `3` | Trials recorded before the objective is planned |
 | `development.candidates_directory` | `storage/candidates` | Separate copies of proposed changes |
 | `development.test_timeout_seconds` | `180` | Limit for a candidate test run |
+| `evolution.benchmark` | `tests` | Measurement used when choosing a parent |
 | `identity.name` | `Genesis` | Assistant name |
 | `identity.system_prompt` | see the yaml | System message sent with each conversation |
 
@@ -280,6 +287,7 @@ genesis/                     Application package
   cognition/planner.py       Step planning
   cognition/learning.py      Missing capabilities, experiments, and retained procedures
   development/               Candidate source changes and their test reports
+  evolution/                 Generations, benchmark scores, and parent selection
   tools/research/            Public search, fetch, and downloads
   capabilities/              Module install, load, and skills
 genesis_modules/             Drop a module folder here

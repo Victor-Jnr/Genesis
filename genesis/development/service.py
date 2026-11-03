@@ -47,13 +47,14 @@ class DevelopmentService:
         self.candidates = settings.resolve_path(settings.development.candidates_directory, root)
         self.runner = runner or run_candidate_tests
 
-    def inspect(self, raw: str) -> str:
-        path = self._allowed(raw)
+    def inspect(self, raw: str, root: Path | None = None) -> str:
+        base = self.root if root is None else root.resolve()
+        path = self._allowed(raw, base)
         if path.is_dir():
             lines = [
-                item.relative_to(self.root).as_posix()
+                item.relative_to(base).as_posix()
                 for item in sorted(path.rglob("*"))
-                if item.is_file() and _is_listed_file(item.relative_to(self.root).as_posix())
+                if item.is_file() and _is_listed_file(item.relative_to(base).as_posix())
             ]
             return "\n".join(lines[:200]) or f"{raw} is empty."
         text = _read(path)
@@ -68,6 +69,7 @@ class DevelopmentService:
         rationale: str,
         old: str,
         new: str,
+        source: Path | None = None,
     ) -> tuple[Proposal, Candidate]:
         reason = rationale.strip()
         previous = old
@@ -84,7 +86,19 @@ class DevelopmentService:
         if path.is_dir():
             raise ModificationError("Choose a file, not a directory.")
         relative = path.relative_to(self.root).as_posix()
-        original = _read(path)
+        source_root = self.root if source is None else source.resolve()
+        if source_root == self.root:
+            edited = path
+        else:
+            edited = (source_root / relative).resolve()
+            try:
+                edited.relative_to(source_root)
+            except ValueError as exc:
+                raise ModificationError("The path leaves the parent generation.") from exc
+            if not edited.is_file():
+                raise ModificationError(f"{relative} does not exist in the parent generation.")
+        original = _read(edited)
+        live_before = _read(path)
         count = original.count(previous)
         if count != 1:
             raise ModificationError(f"The text to replace occurs {count} times.")
@@ -102,7 +116,7 @@ class DevelopmentService:
             replacement,
             hashlib.sha256(original.encode("utf-8")).hexdigest(),
         )
-        candidate = self._materialize(proposal, original, updated)
+        candidate = self._materialize(proposal, updated, source_root, live_before)
         return proposal, candidate
 
     def test(self, candidate_id: str) -> Candidate:
@@ -187,30 +201,31 @@ class DevelopmentService:
             return "Modification failed: that candidate does not exist."
         return f"Modification failed: unknown action '{action.name}'."
 
-    def _materialize(self, proposal: Proposal, original: str, updated: str) -> Candidate:
+    def _materialize(self, proposal: Proposal, updated: str, source_root: Path, live_before: str) -> Candidate:
         destination = self.candidates / proposal.id
         if destination.exists():
             shutil.rmtree(destination)
         destination.mkdir(parents=True)
-        _copy_source(self.root, destination)
+        _copy_source(source_root, destination)
         target = destination / proposal.path
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(updated, encoding="utf-8")
         live = _read(self.root / proposal.path)
-        if live != original:
+        if live != live_before:
             raise ModificationError("The live file changed while the candidate was written.")
         return self.db.save_candidate(proposal.id, _parent_revision(self.root), str(destination))
 
-    def _allowed(self, raw: str) -> Path:
+    def _allowed(self, raw: str, base: Path | None = None) -> Path:
+        root = self.root if base is None else base
         text = raw.strip().replace("\\", "/")
         if not text or text.startswith("/") or ":" in text:
             raise ModificationError("Use a path inside the project.")
         relative = Path(text)
         if any(part == ".." for part in relative.parts):
             raise ModificationError("The path leaves the project.")
-        path = (self.root / relative).resolve()
+        path = (root / relative).resolve()
         try:
-            visible = path.relative_to(self.root)
+            visible = path.relative_to(root)
         except ValueError as exc:
             raise ModificationError("The path leaves the project.") from exc
         posix = visible.as_posix()
