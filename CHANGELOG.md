@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.0
+
+Tested source generations stay in an archive together. A parent is chosen by task success, then by elapsed time. An earlier generation can be read and used as the starting point for another candidate. The live source is not replaced.
+
 ## 0.6.0
 
 A source change can be written into a separate candidate, tested there, and kept in an archive. The live files stay as they were, so the previous version remains recoverable.

@@ -1,4 +1,4 @@
 """Genesis package. Local runtime."""
 
-__version__ = "0.6.0"
-PHASE = "5"
+__version__ = "0.7.0"
+PHASE = "6"

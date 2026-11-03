@@ -16,6 +16,8 @@ from genesis import PHASE, __version__
 from genesis.api.schemas import (
     CandidateResponse,
     CapabilityResponse,
+    EvaluateRequest,
+    GenerationResponse,
     ChatRequest,
     ChatResponse,
     ConversationResponse,
@@ -39,6 +41,7 @@ from genesis.api.schemas import (
 from genesis.capabilities.manifest import ModuleError
 from genesis.capabilities.service import BUILTIN_CAPABILITIES, ModuleService
 from genesis.development.service import DevelopmentService, ModificationError
+from genesis.evolution.service import ArchiveError, ArchiveService
 from genesis.core.conversation import ConversationService, UnknownConversation
 from genesis.core.model_interface.llama_cpp_backend import ModelLoadError
 from genesis.core.model_interface.service import ConfigPinned, ModelNotReady, ModelService, ModelSnapshot
@@ -49,6 +52,7 @@ from genesis.storage.database import (
     Candidate,
     Database,
     Experiment,
+    Generation,
     ModuleRecord,
     Objective,
     ObjectiveEvent,
@@ -191,16 +195,18 @@ def create_app(settings_root: PathContext) -> FastAPI:
     @app.post("/proposals", response_model=CandidateResponse)
     def create_proposal(body: ProposalRequest) -> CandidateResponse:
         try:
-            _proposal, candidate = app.state.context.development.propose(
+            _proposal, candidate, generation = app.state.context.archive.propose(
                 None,
                 body.path,
                 body.rationale,
                 body.old,
                 body.text,
+                body.parent,
             )
-        except ModificationError as exc:
+        except (ModificationError, ArchiveError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        return _candidate_response(app.state.context.db, candidate)
+        response = _candidate_response(app.state.context.db, candidate)
+        return response.model_copy(update={"generation_id": generation.id})
 
     @app.get("/candidates", response_model=list[CandidateResponse])
     def list_candidates() -> list[CandidateResponse]:
@@ -225,10 +231,85 @@ def create_app(settings_root: PathContext) -> FastAPI:
     @app.post("/candidates/{candidate_id}/retain", response_model=CandidateResponse)
     def retain_candidate(candidate_id: str) -> CandidateResponse:
         try:
-            candidate = app.state.context.development.retain(candidate_id)
-        except ModificationError as exc:
+            app.state.context.archive.retain(candidate_id)
+        except (ModificationError, ArchiveError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        candidate = app.state.context.db.get_candidate(candidate_id)
+        if candidate is None:
+            generation = app.state.context.db.get_generation(candidate_id)
+            if generation is None or generation.candidate_id is None:
+                raise HTTPException(status_code=404, detail="Candidate not found.")
+            candidate = app.state.context.db.get_candidate(generation.candidate_id)
+        if candidate is None:
+            raise HTTPException(status_code=404, detail="Candidate not found.")
         return _candidate_response(app.state.context.db, candidate)
+
+    @app.post("/candidates/{candidate_id}/evaluate", response_model=GenerationResponse)
+    def evaluate_candidate(candidate_id: str) -> GenerationResponse:
+        try:
+            app.state.context.archive.evaluate(candidate_id)
+        except (ModificationError, ArchiveError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        generation = app.state.context.db.get_generation_for_candidate(candidate_id)
+        if generation is None:
+            generation = app.state.context.db.get_generation(candidate_id)
+        if generation is None:
+            raise HTTPException(status_code=404, detail="Generation not found.")
+        return _generation_response(
+            app.state.context.db,
+            generation,
+            app.state.context.settings.evolution.benchmark,
+        )
+
+    @app.get("/archive", response_model=list[GenerationResponse])
+    def list_archive() -> list[GenerationResponse]:
+        database = app.state.context.db
+        benchmark = app.state.context.settings.evolution.benchmark
+        return [_generation_response(database, item, benchmark) for item in database.list_generations()]
+
+    @app.get("/archive/{generation_id}", response_model=GenerationResponse)
+    def get_generation(generation_id: str) -> GenerationResponse:
+        generation = app.state.context.db.get_generation(generation_id)
+        if generation is None:
+            raise HTTPException(status_code=404, detail="Generation not found.")
+        return _generation_response(
+            app.state.context.db,
+            generation,
+            app.state.context.settings.evolution.benchmark,
+        )
+
+    @app.get("/archive/{generation_id}/source")
+    def revisit_generation(generation_id: str, path: str) -> dict[str, str]:
+        try:
+            text = app.state.context.archive.revisit(generation_id, path)
+        except (ModificationError, ArchiveError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"path": path, "text": text}
+
+    @app.post("/archive/evaluate", response_model=GenerationResponse)
+    def evaluate_archive(body: EvaluateRequest) -> GenerationResponse:
+        name = body.benchmark or app.state.context.settings.evolution.benchmark
+        try:
+            app.state.context.archive.evaluate(body.target, name)
+        except (ModificationError, ArchiveError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        generation = app.state.context.archive._resolve(body.target)
+        return _generation_response(app.state.context.db, generation, name)
+
+    @app.post("/archive/select", response_model=GenerationResponse)
+    def select_parent(benchmark: str | None = None) -> GenerationResponse:
+        try:
+            app.state.context.archive.select(benchmark)
+        except ArchiveError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        name = benchmark or app.state.context.settings.evolution.benchmark
+        chosen = app.state.context.db.latest_selection(name)
+        if chosen is None:
+            raise HTTPException(status_code=404, detail="No parent was selected.")
+        generation = app.state.context.db.get_generation(chosen.generation_id)
+        if generation is None:
+            raise HTTPException(status_code=404, detail="Generation not found.")
+        return _generation_response(app.state.context.db, generation, name)
 
     @app.get("/capabilities", response_model=list[CapabilityResponse])
     def capabilities() -> list[CapabilityResponse]:
@@ -348,6 +429,7 @@ class PathContext:
         research: ResearchService,
         modules: ModuleService,
         development: DevelopmentService,
+        archive: ArchiveService,
     ) -> None:
         self.root = root
         self.settings = settings
@@ -356,8 +438,9 @@ class PathContext:
         self.research = research
         self.modules = modules
         self.development = development
+        self.archive = archive
         self.conversations = ConversationService(settings, db, models)
-        self.orchestrator = Orchestrator(settings, db, models, research, modules, development)
+        self.orchestrator = Orchestrator(settings, db, models, research, modules, development, archive)
 
 
 def build_context(root, settings, backend, http=None, module_runner=None, candidate_runner=None) -> PathContext:
@@ -368,7 +451,8 @@ def build_context(root, settings, backend, http=None, module_runner=None, candid
     research = ResearchService(settings, db, root, http)
     modules = ModuleService(settings, db, root, module_runner)
     development = DevelopmentService(settings, db, root, candidate_runner)
-    return PathContext(root, settings, db, models, research, modules, development)
+    archive = ArchiveService(settings, db, development)
+    return PathContext(root, settings, db, models, research, modules, development, archive)
 
 
 def build_runtime_context(backend=None) -> PathContext:
@@ -481,6 +565,26 @@ def _skill_response(skill: Skill) -> SkillResponse:
         body=skill.body,
         created_at=skill.created_at,
         updated_at=skill.updated_at,
+    )
+
+
+def _generation_response(
+    database: Database,
+    generation: Generation,
+    benchmark: str | None = None,
+) -> GenerationResponse:
+    name = benchmark or "tests"
+    latest = database.latest_evaluation(generation.id, name)
+    return GenerationResponse(
+        id=generation.id,
+        candidate_id=generation.candidate_id,
+        parent_id=generation.parent_id,
+        label=generation.label,
+        status=generation.status,
+        created_at=generation.created_at,
+        benchmark=None if latest is None else latest.benchmark,
+        success=None if latest is None else latest.success,
+        elapsed_ms=None if latest is None else latest.elapsed_ms,
     )
 
 

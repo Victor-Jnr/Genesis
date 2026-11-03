@@ -47,6 +47,9 @@ development:
   candidates_directory: storage/candidates
   test_timeout_seconds: 180
 
+evolution:
+  benchmark: tests
+
 identity:
   name: Genesis
   system_prompt: >

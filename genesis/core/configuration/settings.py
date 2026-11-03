@@ -71,6 +71,12 @@ class DevelopmentConfig(BaseModel):
     test_timeout_seconds: float = Field(default=180, gt=0)
 
 
+class EvolutionConfig(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    benchmark: str = "tests"
+
+
 class LearningConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
@@ -95,6 +101,7 @@ class Settings(BaseModel):
     modules: ModulesConfig = Field(default_factory=ModulesConfig)
     learning: LearningConfig = Field(default_factory=LearningConfig)
     development: DevelopmentConfig = Field(default_factory=DevelopmentConfig)
+    evolution: EvolutionConfig = Field(default_factory=EvolutionConfig)
     identity: IdentityConfig = Field(default_factory=IdentityConfig)
 
     def resolve_path(self, value: str, root: Path) -> Path:
