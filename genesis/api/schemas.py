@@ -52,6 +52,30 @@ class HealthResponse(BaseModel):
     phase: str
 
 
+class ConfigResponse(BaseModel):
+    identity_name: str
+    server_host: str
+    server_port: int
+    model_directory: str
+    model_filename: str | None
+    context_length: int
+    n_gpu_layers: int
+    temperature: float
+    top_p: float
+    max_tokens: int
+    database_path: str
+    logging_level: str
+    logging_directory: str
+    research_download_directory: str
+    research_max_actions: int
+    modules_directory: str
+    skills_directory: str
+    candidates_directory: str
+    test_timeout_seconds: float
+    evolution_benchmark: str
+    learning_max_experiments: int
+
+
 class ObjectiveRequest(BaseModel):
     request: str = Field(min_length=1)
 
@@ -133,6 +157,7 @@ class GenerationResponse(BaseModel):
     benchmark: str | None = None
     success: float | None = None
     elapsed_ms: float | None = None
+    selected: bool = False
 
 
 class CandidateResponse(BaseModel):

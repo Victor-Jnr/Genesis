@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.8.0
+
+A workstation at `/workstation` shows the dashboard, live objective monitor, objectives, source archive, capabilities, and the running configuration. The pages are HTML served by the same process and read the existing JSON API.
+
 ## 0.7.0
 
 Tested source generations stay in an archive together. A parent is chosen by task success, then by elapsed time. An earlier generation can be read and used as the starting point for another candidate. The live source is not replaced.

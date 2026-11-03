@@ -1,4 +1,4 @@
-"""FastAPI surface. This is the conversation UI until the workstation exists."""
+"""FastAPI surface. JSON routes and the HTML workstation."""
 
 from __future__ import annotations
 
@@ -19,6 +19,7 @@ from genesis.api.schemas import (
     EvaluateRequest,
     GenerationResponse,
     ChatRequest,
+    ConfigResponse,
     ChatResponse,
     ConversationResponse,
     ExperimentResponse,
@@ -60,6 +61,7 @@ from genesis.storage.database import (
     Skill,
 )
 from genesis.tools.research.service import ResearchService
+from genesis.workstation.pages import register_workstation
 
 log = logging.getLogger("genesis")
 
@@ -94,6 +96,33 @@ def create_app(settings_root: PathContext) -> FastAPI:
     @app.get("/health", response_model=HealthResponse)
     def health() -> HealthResponse:
         return HealthResponse(status="ok", venv=sys.prefix, phase=PHASE)
+
+    @app.get("/config", response_model=ConfigResponse)
+    def config_snapshot() -> ConfigResponse:
+        settings = app.state.context.settings
+        return ConfigResponse(
+            identity_name=settings.identity.name,
+            server_host=settings.server.host,
+            server_port=settings.server.port,
+            model_directory=settings.model.directory,
+            model_filename=settings.model.filename,
+            context_length=settings.model.context_length,
+            n_gpu_layers=settings.model.n_gpu_layers,
+            temperature=settings.model.temperature,
+            top_p=settings.model.top_p,
+            max_tokens=settings.model.max_tokens,
+            database_path=settings.database.path,
+            logging_level=settings.logging.level,
+            logging_directory=settings.logging.directory,
+            research_download_directory=settings.research.download_directory,
+            research_max_actions=settings.research.max_actions,
+            modules_directory=settings.modules.directory,
+            skills_directory=settings.modules.skills_directory,
+            candidates_directory=settings.development.candidates_directory,
+            test_timeout_seconds=settings.development.test_timeout_seconds,
+            evolution_benchmark=settings.evolution.benchmark,
+            learning_max_experiments=settings.learning.max_experiments,
+        )
 
     @app.get("/model", response_model=ModelStatusResponse)
     def model_status() -> ModelStatusResponse:
@@ -416,6 +445,7 @@ def create_app(settings_root: PathContext) -> FastAPI:
             ],
         )
 
+    register_workstation(app)
     return app
 
 
@@ -568,6 +598,11 @@ def _skill_response(skill: Skill) -> SkillResponse:
     )
 
 
+def _is_selected(database: Database, benchmark: str, generation_id: str) -> bool:
+    chosen = database.latest_selection(benchmark)
+    return chosen is not None and chosen.generation_id == generation_id
+
+
 def _generation_response(
     database: Database,
     generation: Generation,
@@ -585,6 +620,7 @@ def _generation_response(
         benchmark=None if latest is None else latest.benchmark,
         success=None if latest is None else latest.success,
         elapsed_ms=None if latest is None else latest.elapsed_ms,
+        selected=_is_selected(database, name, generation.id),
     )
 
 
