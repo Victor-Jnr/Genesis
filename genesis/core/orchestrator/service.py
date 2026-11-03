@@ -17,6 +17,7 @@ from genesis.cognition.learning import (
     procedure_text,
 )
 from genesis.cognition.planner import PlanError, Planner, step_messages
+from genesis.tools.execution.service import ExecutionService
 from genesis.tools.research.actions import parse_action
 from genesis.tools.research.service import ResearchService
 from genesis.core.configuration.settings import Settings
@@ -54,6 +55,7 @@ class Orchestrator:
         modules: ModuleService,
         development: DevelopmentService,
         archive: ArchiveService,
+        execution: ExecutionService,
     ) -> None:
         self.settings = settings
         self.db = db
@@ -62,6 +64,7 @@ class Orchestrator:
         self.modules = modules
         self.development = development
         self.archive = archive
+        self.execution = execution
         self.planner = Planner(models)
         self.learning = LearningService(settings, db, models, modules)
         self._stop = threading.Event()
@@ -211,6 +214,8 @@ class Orchestrator:
                 observation = self.development.execute(objective_id, action)
             elif action.name in {"propose", "retain", "lineage", "evaluate", "select", "revisit"}:
                 observation = self.archive.execute(objective_id, action)
+            elif action.name == "run":
+                observation = self.execution.execute(objective_id, action)
             else:
                 observation = self.research.execute(objective_id, action)
             self._event(objective_id, action.name, observation)

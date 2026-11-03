@@ -174,6 +174,10 @@ Invoke-RestMethod http://127.0.0.1:8765/objectives/<id>/experiments
 
 On 3 November 2026, `Qwen3.5-9B-UD-IQ2_XXS.gguf` ran with `n_gpu_layers: -1` on an RTX 4090 Laptop GPU, using the CUDA 13 build of `llama-cpp-python` 0.3.36. The objective asked Genesis to install a local module folder that was not registered, `storage/uninstalled_doubler`, and to invoke it with the task `3`. The model called install and invoke. The module imported and returned `doubled 6`. The objective finished in 38 seconds.
 
+## Local programs
+
+`run` starts one program and its arguments. It does not open a shell, and it refuses public addresses. Private addresses work after `lab.enabled` is set to `true`. The action itself stays unavailable until `execution.enabled` is `true`. `browse` reads the text of a page and does not run JavaScript. Restart the server after changing either switch.
+
 ## Candidates
 
 Genesis can read its own source, write a proposed change into a separate copy, and run that copy's tests with the project virtual environment. The live files are not replaced. A passing candidate can be retained. Every tested generation stays in the archive, including ones that were not selected. Selection compares task success first and elapsed time second. `GET /archive/{id}/source` reads a file from an earlier generation, and a proposal can name that generation as `parent`.
@@ -220,6 +224,7 @@ Invoke-RestMethod "http://127.0.0.1:8765/source?path=genesis/__init__.py"
 | `GET` | `/capabilities` | Built-in actions and installed modules |
 | `GET` | `/skills` | Saved procedures |
 | `POST` | `/skills` | Body: `{"name":"...","body":"..."}` |
+| `POST` | `/commands` | Body: `{"command":"..."}`. One local program when execution is enabled |
 | `GET` | `/conversations` | Conversations, newest first |
 | `GET` | `/conversations/{id}` | One conversation and its messages |
 
@@ -245,7 +250,10 @@ Interactive request docs are served at [http://127.0.0.1:8765/docs](http://127.0
 | `logging.directory` | `storage/logs` | JSON logs are written to `genesis.jsonl` here |
 | `research.enabled` | `true` | Allow objectives to retrieve public sources |
 | `research.download_directory` | `storage/downloads` | Saved downloads |
-| `research.max_actions` | `4` | Lookups allowed in one step |
+| `research.max_actions` | `8` | Lookups allowed in one step |
+| `execution.enabled` | `false` | Allow `run` to start one local program. This is not a shell |
+| `execution.timeout_seconds` | `60` | Limit for one local program |
+| `lab.enabled` | `false` | Allow private-network addresses for fetch, browse, download, and run |
 | `research.allow_private_hosts` | `false` | Refuse private and loopback URLs |
 | `modules.directory` | `genesis_modules` | Installed module folders |
 | `modules.skills_directory` | `storage/skills` | Saved procedure files |

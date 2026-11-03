@@ -13,6 +13,8 @@ ACTIONS = {
     "fetch",
     "read",
     "download",
+    "browse",
+    "run",
     "inventory",
     "install",
     "invoke",
@@ -45,6 +47,7 @@ class ResearchAction:
     old: str = ""
     rationale: str = ""
     parent: str = ""
+    command: str = ""
 
 
 def parse_action(text: str) -> ResearchAction | None:
@@ -73,4 +76,5 @@ def parse_action(text: str) -> ResearchAction | None:
         old=str(payload.get("old") or "").strip(),
         rationale=str(payload.get("rationale") or "").strip(),
         parent=str(payload.get("parent") or "").strip(),
+        command=str(payload.get("command") or "").strip(),
     )

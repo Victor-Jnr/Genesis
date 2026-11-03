@@ -20,6 +20,7 @@ GAP = json.dumps(
                 "hypothesis": "The echo module repeats the task.",
                 "probe": "Install echo and invoke it with ping.",
                 "expect": "echo ping",
+                "uses": ["install", "invoke"],
             }
         ],
     }

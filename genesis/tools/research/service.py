@@ -34,7 +34,7 @@ class ResearchService:
             timeout=research.timeout_seconds,
             max_bytes=research.max_bytes,
             user_agent=research.user_agent,
-            allow_private_hosts=research.allow_private_hosts,
+            allow_private_hosts=research.allow_private_hosts or settings.lab.enabled,
         )
         self.download_directory = settings.resolve_path(research.download_directory, root)
 
@@ -48,8 +48,11 @@ class ResearchService:
                 return self._repositories(objective_id, _required(action.query, "query"))
             if action.name == "package":
                 return self._package(objective_id, _package_name(action.package))
-            if action.name == "fetch":
-                return self._fetch(objective_id, action.url)
+            if action.name in {"fetch", "browse"}:
+                text = self._fetch(objective_id, action.url)
+                if action.name == "browse":
+                    return f"{text}\n\nJavaScript on that page was not executed."
+                return text
             if action.name == "read":
                 return self._read(objective_id, action.url)
             if action.name == "download":

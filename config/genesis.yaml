@@ -31,8 +31,8 @@ research:
   timeout_seconds: 20
   max_bytes: 5000000
   max_results: 5
-  max_actions: 4
-  # Public hosts only. Set true to allow loopback and private-network URLs.
+  max_actions: 8
+  # Public hosts only. lab.enabled also allows private-network URLs.
   allow_private_hosts: false
   user_agent: Genesis/0.3
 
@@ -49,6 +49,16 @@ development:
 
 evolution:
   benchmark: tests
+
+execution:
+  # One local program per action. Off until you turn it on. This is not a shell.
+  enabled: false
+  timeout_seconds: 60
+  max_output_chars: 8000
+
+lab:
+  # Allows private-network addresses for fetch, browse, download, and run.
+  enabled: false
 
 identity:
   name: Genesis

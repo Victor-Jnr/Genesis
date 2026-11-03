@@ -23,7 +23,9 @@ def test_shipped_config_loads_phase0_defaults(monkeypatch: pytest.MonkeyPatch) -
     assert settings.database.path == "storage/genesis.db"
     assert settings.research.enabled is True
     assert settings.research.allow_private_hosts is False
-    assert settings.research.max_actions == 4
+    assert settings.research.max_actions == 8
+    assert settings.execution.enabled is False
+    assert settings.lab.enabled is False
     assert settings.modules.directory == "genesis_modules"
     assert settings.learning.max_experiments == 3
     assert settings.development.candidates_directory == "storage/candidates"
