@@ -4,7 +4,7 @@ Local HTTP service for [GGUF](https://github.com/ggerganov/ggml/blob/master/docs
 
 Genesis loads a model from a folder on your machine, runs inference in-process, and stores every conversation in SQLite. The server binds to loopback. No cloud model API is required.
 
-The aim is a Gödel machine: software that proposes a change to itself, tests that change, and keeps the version that works. The model stays replaceable. Conversations, objectives, modules, and learned procedures stay in SQLite on this machine. Today Genesis can run an objective, look up public documentation, register a module, and remember a procedure that an experiment verified. It does not yet edit its own source or train weights.
+The aim is a Darwin Gödel Machine: software that proposes a change to itself, tests that change, and keeps the version that works. The model stays replaceable. Conversations, objectives, modules, and learned procedures stay in SQLite on this machine. Today Genesis can run an objective, look up public documentation, register a module, and remember a procedure that an experiment verified. It does not yet edit its own source or train weights.
 
 ![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white)
 
@@ -165,6 +165,10 @@ Before an objective is planned, Genesis compares the request with saved skills. 
 ```powershell
 Invoke-RestMethod http://127.0.0.1:8765/objectives/<id>/experiments
 ```
+
+## Live trial
+
+On 3 November 2026, `Qwen3.5-9B-UD-IQ2_XXS.gguf` ran with `n_gpu_layers: -1` on an RTX 4090 Laptop GPU, using the CUDA 13 build of `llama-cpp-python` 0.3.36. The objective asked Genesis to install a local module folder that was not registered, `storage/uninstalled_doubler`, and to invoke it with the task `3`. The model called install and invoke. The module imported and returned `doubled 6`. The objective finished in 38 seconds.
 
 ## HTTP API
 

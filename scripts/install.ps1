@@ -15,7 +15,7 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 # Prebuilt wheels only. A source build needs a C++ toolchain and is not the project setup.
 $indexes = @(
-    "https://abetlen.github.io/llama-cpp-python/whl/cu128",
+    "https://abetlen.github.io/llama-cpp-python/whl/cu130",
     "https://abetlen.github.io/llama-cpp-python/whl/cu124",
     "https://abetlen.github.io/llama-cpp-python/whl/cpu"
 )

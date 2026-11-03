@@ -104,6 +104,8 @@ def test_install_invoke_and_reload_without_changing_the_core(tmp_path: Path) -> 
     inventory = reloaded.modules.inventory()
     assert "echo 0.1.0 (module, active)" in inventory
     assert "search (built-in, active)" in inventory
+    assert "install (built-in, active)" in inventory
+    assert "invoke (built-in, active)" in inventory
 
 
 def test_install_rejects_a_path_outside_the_project(tmp_path: Path) -> None:
