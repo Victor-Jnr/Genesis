@@ -4,7 +4,7 @@ Local HTTP service for [GGUF](https://github.com/ggerganov/ggml/blob/master/docs
 
 Genesis loads a model from a folder on your machine, runs inference in-process, and stores every conversation in SQLite. The server binds to loopback. No cloud model API is required.
 
-The aim is a Darwin Gödel Machine: software that proposes a change to itself, tests that change, and keeps the version that works. The model stays replaceable. Conversations, objectives, modules, and learned procedures stay in SQLite on this machine. Today Genesis can run an objective, look up public documentation, register a module, and remember a procedure that an experiment verified. It does not yet edit its own source or train weights.
+The aim is a Darwin Gödel Machine: software that proposes a change to itself, tests that change, and keeps the version that works. The model stays replaceable. Conversations, objectives, modules, and learned procedures stay in SQLite on this machine. Today Genesis can run an objective, look up public documentation, register a module, remember a verified procedure, and write a proposed source change into a separate candidate. A candidate is tested on its own. The live source stays in place, and weight training is not built.
 
 ![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-3776AB?logo=python&logoColor=white)
 
@@ -51,7 +51,7 @@ Invoke-RestMethod http://127.0.0.1:8765/health
 {
   "status": "ok",
   "venv": "C:\\git\\AI_Worker\\.venv",
-  "phase": "4"
+  "phase": "5"
 }
 ```
 
@@ -170,6 +170,14 @@ Invoke-RestMethod http://127.0.0.1:8765/objectives/<id>/experiments
 
 On 3 November 2026, `Qwen3.5-9B-UD-IQ2_XXS.gguf` ran with `n_gpu_layers: -1` on an RTX 4090 Laptop GPU, using the CUDA 13 build of `llama-cpp-python` 0.3.36. The objective asked Genesis to install a local module folder that was not registered, `storage/uninstalled_doubler`, and to invoke it with the task `3`. The model called install and invoke. The module imported and returned `doubled 6`. The objective finished in 38 seconds.
 
+## Candidates
+
+Genesis can read its own source, write a proposed change into a separate copy, and run that copy's tests with the project virtual environment. The live files are not replaced. A passing candidate can be retained. Earlier candidates stay on disk under `storage/candidates/`.
+
+```powershell
+Invoke-RestMethod "http://127.0.0.1:8765/source?path=genesis/__init__.py"
+```
+
 ## HTTP API
 
 | Method | Path | Purpose |
@@ -187,6 +195,12 @@ On 3 November 2026, `Qwen3.5-9B-UD-IQ2_XXS.gguf` ran with `n_gpu_layers: -1` on 
 | `POST` | `/objectives/{id}/resume` | Resume a paused, waiting, or failed objective |
 | `GET` | `/objectives/{id}/resources` | Sources recorded while that objective ran |
 | `GET` | `/objectives/{id}/experiments` | Trials run while learning that objective |
+| `GET` | `/source` | Query `path`. Read an allowed project file |
+| `POST` | `/proposals` | Body: `{"path","rationale","old","text"}`. Write a candidate copy |
+| `GET` | `/candidates` | Candidate versions |
+| `GET` | `/candidates/{id}` | One candidate and its test report |
+| `POST` | `/candidates/{id}/test` | Run the candidate's tests |
+| `POST` | `/candidates/{id}/retain` | Keep a passing candidate. The live tree stays unchanged |
 | `GET` | `/resources` | Recorded sources, newest first |
 | `GET` | `/modules` | Installed modules |
 | `POST` | `/modules/install` | Body: `{"path":"..."}`. Register a module folder inside the project |
@@ -224,6 +238,8 @@ Interactive request docs are served at [http://127.0.0.1:8765/docs](http://127.0
 | `modules.directory` | `genesis_modules` | Installed module folders |
 | `modules.skills_directory` | `storage/skills` | Saved procedure files |
 | `learning.max_experiments` | `3` | Trials recorded before the objective is planned |
+| `development.candidates_directory` | `storage/candidates` | Separate copies of proposed changes |
+| `development.test_timeout_seconds` | `180` | Limit for a candidate test run |
 | `identity.name` | `Genesis` | Assistant name |
 | `identity.system_prompt` | see the yaml | System message sent with each conversation |
 
@@ -263,6 +279,7 @@ genesis/                     Application package
   core/conversation.py       Conversation history
   cognition/planner.py       Step planning
   cognition/learning.py      Missing capabilities, experiments, and retained procedures
+  development/               Candidate source changes and their test reports
   tools/research/            Public search, fetch, and downloads
   capabilities/              Module install, load, and skills
 genesis_modules/             Drop a module folder here

@@ -18,6 +18,12 @@ ACTIONS = {
     "invoke",
     "remember",
     "skills",
+    "inspect",
+    "propose",
+    "test_candidate",
+    "compare",
+    "retain",
+    "archive",
     "finish",
 }
 
@@ -32,6 +38,8 @@ class ResearchAction:
     path: str = ""
     task: str = ""
     text: str = ""
+    old: str = ""
+    rationale: str = ""
 
 
 def parse_action(text: str) -> ResearchAction | None:
@@ -56,5 +64,7 @@ def parse_action(text: str) -> ResearchAction | None:
         result=str(payload.get("result") or "").strip(),
         path=str(payload.get("path") or "").strip(),
         task=str(payload.get("task") or "").strip(),
-        text=str(payload.get("text") or "").strip(),
+        text=str(payload.get("text") or payload.get("new") or "").strip(),
+        old=str(payload.get("old") or "").strip(),
+        rationale=str(payload.get("rationale") or "").strip(),
     )

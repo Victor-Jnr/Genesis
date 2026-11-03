@@ -110,6 +110,26 @@ class CapabilityResponse(BaseModel):
     version: str | None = None
 
 
+class ProposalRequest(BaseModel):
+    path: str = Field(min_length=1)
+    rationale: str = Field(min_length=1)
+    old: str = Field(min_length=1)
+    text: str = Field(min_length=1)
+
+
+class CandidateResponse(BaseModel):
+    id: str
+    proposal_id: str
+    parent_revision: str
+    directory: str
+    status: str
+    report: str
+    elapsed_ms: float | None
+    created_at: str
+    path: str | None = None
+    rationale: str | None = None
+
+
 class ExperimentResponse(BaseModel):
     id: str
     objective_id: str

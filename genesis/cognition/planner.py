@@ -31,7 +31,13 @@ STEP_SYSTEM = (
     '{"action":"inventory"}, {"action":"install","path":"..."}, '
     '{"action":"invoke","name":"...","task":"..."}, '
     '{"action":"remember","name":"...","text":"..."}, {"action":"skills","query":"..."}, '
+    '{"action":"inspect","path":"..."}, '
+    '{"action":"propose","path":"...","old":"exact text","text":"replacement","rationale":"..."}, '
+    '{"action":"test_candidate","name":"candidate id"}, '
+    '{"action":"compare","name":"candidate id"}, {"action":"retain","name":"candidate id"}, '
+    '{"action":"archive"}, '
     '{"action":"finish","result":"..."}. '
+    "propose writes a separate candidate and leaves the live file unchanged. "
     "After an observation, send the next action or the step result."
 )
 
