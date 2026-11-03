@@ -36,7 +36,7 @@ class ScriptedBackend:
     def unload(self) -> None:
         self.path = None
 
-    def generate(self, messages, model, *, temperature=None, max_tokens=None) -> GenerationResult:
+    def generate(self, messages, model, *, temperature=None, max_tokens=None, response_format=None) -> GenerationResult:
         self.messages = messages
         content = self.replies.pop(0) if self.replies else "done"
         return GenerationResult(content, 1, 1, 1.0, None if self.path is None else self.path.name)
@@ -66,6 +66,36 @@ def test_parse_plan_reads_json_and_strips_thinking() -> None:
     steps = parse_plan('<think>draft</think>\n```json\n' + PLAN + "\n```")
     assert [step.title for step in steps] == ["Inspect", "Answer"]
     assert steps[0].result is None
+
+
+def test_a_reply_that_asks_the_user_is_not_the_step_result(tmp_path: Path) -> None:
+    replies = [
+        covered_gap_reply(),
+        PLAN,
+        "I am ready to help. Please provide the necessary details.",
+        "The request is to add.",
+        "The answer is 4.",
+        "4",
+    ]
+    context = _context(tmp_path, ["demo.gguf"], replies)
+    context.models.startup()
+    objective = context.orchestrator.submit("Add 2 and 2")
+    context.orchestrator.run_available()
+    stored, _events = context.orchestrator.get(objective.id)
+    assert stored.status == "completed"
+    assert [step.result for step in stored.steps] == ["The request is to add.", "The answer is 4."]
+
+
+def test_a_broken_json_action_is_asked_again(tmp_path: Path) -> None:
+    replies = [covered_gap_reply(), PLAN, "{", "The request is to add.", "The answer is 4.", "4"]
+    context = _context(tmp_path, ["demo.gguf"], replies)
+    context.models.startup()
+    objective = context.orchestrator.submit("Add 2 and 2")
+    context.orchestrator.run_available()
+    stored, _events = context.orchestrator.get(objective.id)
+    assert stored.status == "completed"
+    assert stored.result == "4"
+    assert [step.result for step in stored.steps] == ["The request is to add.", "The answer is 4."]
 
 
 def test_objective_runs_to_completion_and_records_events(tmp_path: Path) -> None:

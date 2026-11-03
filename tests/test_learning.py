@@ -4,7 +4,9 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from genesis.api.app import build_context, create_app
-from genesis.cognition.learning import LearningError, covered_gap_reply, parse_gap
+from genesis.cognition.learning import LearningError, covered_gap_reply, gap_request, parse_gap
+from genesis.core.orchestrator.service import _module_folders, _with_next_step
+from genesis.tools.research.actions import ResearchAction
 from genesis.core.configuration.settings import DatabaseConfig, LearningConfig, LoggingConfig, ModelConfig, Settings
 from genesis.core.model_interface.llama_cpp_backend import GenerationResult
 from genesis.tools.research.http_client import HttpResponse, ResearchError
@@ -57,7 +59,7 @@ class ScriptedBackend:
     def unload(self) -> None:
         self.path = None
 
-    def generate(self, messages, model, *, temperature=None, max_tokens=None) -> GenerationResult:
+    def generate(self, messages, model, *, temperature=None, max_tokens=None, response_format=None) -> GenerationResult:
         self.prompts.append(str(messages[-1]["content"]))
         content = self.replies.pop(0) if self.replies else "done"
         return GenerationResult(content, 1, 1, 1.0, None if self.path is None else self.path.name)
@@ -247,14 +249,108 @@ def test_assessment_asks_again_when_the_first_reply_is_not_json(tmp_path: Path) 
     assert context.db.list_experiments(objective.id) == []
 
 
-def test_a_bad_assessment_fails_the_objective_after_one_retry(tmp_path: Path) -> None:
-    context, _backend = _context(tmp_path, ["nope", "still nope"])
+def test_a_failed_install_points_at_folders_from_the_listing() -> None:
+    listing = "tests/spare/README.md\ntests/test_api.py\n"
+    assert _module_folders(listing, "tests") == ["tests/spare"]
+    text = _with_next_step(
+        ResearchAction("install", path="tests"),
+        "C:/repo/tests has no manifest. inspect that folder and install the subfolder that contains the module.",
+        [listing],
+    )
+    assert "tests/spare" in text
+    pointed = _with_next_step(
+        ResearchAction("invoke", package="tests"),
+        "Module failed: tests is not an active module.",
+        ["Installed marker 0.1.0 (active). Returns a mark."],
+    )
+    assert "Installed marker 0.1.0" in pointed
+
+
+def test_parse_gap_drops_placeholder_experiments() -> None:
+    text = json.dumps(
+        {
+            "missing": [],
+            "known": [],
+            "experiments": [
+                {
+                    "name": "search",
+                    "hypothesis": "locate the module",
+                    "probe": "what to try",
+                    "expect": "text that proves success",
+                    "uses": ["inspect"],
+                }
+            ],
+        }
+    )
+    assessment = parse_gap(text, max_experiments=3)
+    assert assessment.experiments == ()
+
+
+def test_a_module_inside_the_project_is_not_sent_to_web_search(tmp_path: Path) -> None:
+    folder = tmp_path / "tests" / "spare"
+    folder.mkdir(parents=True)
+    (folder / "README.md").write_text("Install this folder.\n", encoding="utf-8")
+    http = MapClient()
+    plan = json.dumps({"steps": [{"title": "Find", "instruction": "Find the module under tests."}]})
+    context, _backend = _context(
+        tmp_path,
+        [
+            covered_gap_reply(),
+            plan,
+            json.dumps({"action": "search", "query": "module"}),
+            json.dumps({"action": "inspect", "path": "tests"}),
+            "tests/spare/README.md",
+            "tests/spare/README.md",
+        ],
+        http,
+    )
+    context.models.startup()
+    objective = context.orchestrator.submit(
+        "Use a project module that is not installed yet. Find it under tests."
+    )
+    context.orchestrator.run_available()
+    stored, events = context.orchestrator.get(objective.id)
+    assert stored.status == "completed"
+    assert http.calls == []
+    assert any(event.kind == "search" and "Do not search the web" in event.message for event in events)
+    assert any(event.kind == "inspect" and "tests/spare/README.md" in event.message for event in events)
+
+
+def test_gap_request_names_actions_without_copying_their_descriptions() -> None:
+    inventory = "Capabilities:\n- search (built-in, active) Search the public web\nSkills:\n- echo\n"
+    text = gap_request("Find the module under tests.", inventory)
+    assert "Actions: search" in text
+    assert "Saved skills: echo" in text
+    assert "Search the public web" not in text
+    assert "Find the module under tests." in text
+
+
+def test_a_tool_observation_can_prove_the_experiment(tmp_path: Path) -> None:
+    _echo(tmp_path)
+    install = json.dumps({"action": "install", "path": "incoming/echo"})
+    invoke = json.dumps({"action": "invoke", "name": "echo", "task": "ping"})
+    context, _backend = _context(
+        tmp_path,
+        [GAP, install, invoke, "done", PLAN, "echo ping", "echo ping"],
+    )
+    context.models.startup()
+    objective = context.orchestrator.submit("Learn echo and repeat ping")
+    context.orchestrator.run_available()
+    stored, _events = context.orchestrator.get(objective.id)
+    assert stored.status == "completed"
+    experiment = context.db.list_experiments(objective.id)[0]
+    assert experiment.success is True
+    assert "echo ping" in experiment.outcome
+    assert context.db.list_skills()[0].name == "echo"
+
+
+def test_a_bad_assessment_does_not_stop_the_objective(tmp_path: Path) -> None:
+    context, _backend = _context(tmp_path, ["nope", "still nope", PLAN, "ok", "ok"])
     context.models.startup()
     objective = context.orchestrator.submit("Learn echo and repeat ping")
     context.orchestrator.run_available()
     stored, events = context.orchestrator.get(objective.id)
-    assert stored.status == "failed"
-    assert stored.error is not None
-    assert "JSON" in stored.error
-    assert events[-1].kind == "failed"
-    assert context.db.list_gaps(objective.id) == []
+    assert stored.status == "completed"
+    assert stored.result == "ok"
+    assert any(event.kind == "gap" and "not usable" in event.message for event in events)
+    assert context.db.list_experiments(objective.id) == []

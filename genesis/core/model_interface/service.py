@@ -39,6 +39,7 @@ class Backend(Protocol):
         *,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        response_format: dict[str, object] | None = None,
     ) -> GenerationResult: ...
 
     def stream(
@@ -143,6 +144,7 @@ class ModelService:
         *,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        response_format: dict[str, object] | None = None,
     ) -> GenerationResult:
         with self._lock:
             self._require_loaded()
@@ -151,6 +153,7 @@ class ModelService:
                 self.settings.model,
                 temperature=temperature,
                 max_tokens=max_tokens,
+                response_format=response_format,
             )
 
     def stream(

@@ -72,7 +72,7 @@ class ScriptedBackend:
     def unload(self) -> None:
         self.path = None
 
-    def generate(self, messages, model, *, temperature=None, max_tokens=None) -> GenerationResult:
+    def generate(self, messages, model, *, temperature=None, max_tokens=None, response_format=None) -> GenerationResult:
         content = self.replies.pop(0) if self.replies else "done"
         return GenerationResult(content, 1, 1, 1.0, None if self.path is None else self.path.name)
 
