@@ -39,7 +39,11 @@ From the repository root in PowerShell:
 
 `install.ps1` creates `.venv` when it is missing and installs every Python package there. `run.ps1` starts the API with `.venv\Scripts\python.exe`. The process exits if it is started with any other interpreter.
 
-The server listens on [http://127.0.0.1:8765](http://127.0.0.1:8765).
+The server listens on [http://127.0.0.1:8765](http://127.0.0.1:8765). The workstation is at [http://127.0.0.1:8765/workstation](http://127.0.0.1:8765/workstation).
+
+## Workstation
+
+The workstation is five HTML pages in this server: dashboard, live monitor, objectives, development, and capabilities. They read the JSON API. Chat, new objectives, pause, resume, model selection, and reload use the existing endpoints. Configuration on the capabilities page is the running process. Change it in `config/genesis.yaml` and restart. Resource meters, generation diffs, and capability usage history are not on these pages.
 
 Check that it is up:
 
@@ -182,6 +186,8 @@ Invoke-RestMethod "http://127.0.0.1:8765/source?path=genesis/__init__.py"
 
 | Method | Path | Purpose |
 | --- | --- | --- |
+| `GET` | `/workstation` | HTML dashboard, with monitor, objectives, development, and capabilities beside it |
+| `GET` | `/config` | Running configuration. No tokens |
 | `GET` | `/health` | Process status and virtualenv path |
 | `GET` | `/model` | Loaded file, discovered files, and load detail |
 | `POST` | `/model/reload` | Rescan the models directory |
@@ -288,6 +294,7 @@ genesis/                     Application package
   cognition/learning.py      Missing capabilities, experiments, and retained procedures
   development/               Candidate source changes and their test reports
   evolution/                 Generations, benchmark scores, and parent selection
+  workstation/               HTML pages for the dashboard, monitor, and explorers
   tools/research/            Public search, fetch, and downloads
   capabilities/              Module install, load, and skills
 genesis_modules/             Drop a module folder here
