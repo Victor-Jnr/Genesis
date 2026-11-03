@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.8.1
+
+Sending a chat message shows that message at once, then “Message sent. Waiting for a reply.” until the model answers.
+
 ## 0.8.0
 
 A workstation at `/workstation` shows the dashboard, live objective monitor, objectives, source archive, capabilities, and the running configuration. The pages are HTML served by the same process and read the existing JSON API.

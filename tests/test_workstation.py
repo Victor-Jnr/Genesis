@@ -57,7 +57,10 @@ def test_workstation_pages_and_assets(tmp_path: Path) -> None:
         assert 'data-page="objective"' in detail.text
         assert 'data-id="abc"' in detail.text
         assert client.get("/workstation/missing").status_code == 404
-        assert client.get("/workstation/assets/workstation.js").status_code == 200
+        script = client.get("/workstation/assets/workstation.js")
+        assert script.status_code == 200
+        assert "Message sent. Waiting for a reply." in script.text
+        assert 'aria-live="polite"' in page
         assert client.get("/workstation/assets/workstation.css").status_code == 200
 
 
