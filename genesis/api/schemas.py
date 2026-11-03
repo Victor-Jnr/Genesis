@@ -74,6 +74,8 @@ class ConfigResponse(BaseModel):
     test_timeout_seconds: float
     evolution_benchmark: str
     learning_max_experiments: int
+    execution_enabled: bool
+    lab_enabled: bool
 
 
 class ObjectiveRequest(BaseModel):
@@ -107,6 +109,10 @@ class ModuleResponse(BaseModel):
 
 class ModuleRequest(BaseModel):
     path: str = Field(min_length=1)
+
+
+class CommandRequest(BaseModel):
+    command: str = Field(min_length=1)
 
 
 class InvokeRequest(BaseModel):

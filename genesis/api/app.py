@@ -19,6 +19,7 @@ from genesis.api.schemas import (
     EvaluateRequest,
     GenerationResponse,
     ChatRequest,
+    CommandRequest,
     ConfigResponse,
     ChatResponse,
     ConversationResponse,
@@ -60,6 +61,7 @@ from genesis.storage.database import (
     Resource,
     Skill,
 )
+from genesis.tools.execution.service import ExecutionError, ExecutionService
 from genesis.tools.research.service import ResearchService
 from genesis.workstation.pages import register_workstation
 
@@ -122,6 +124,8 @@ def create_app(settings_root: PathContext) -> FastAPI:
             test_timeout_seconds=settings.development.test_timeout_seconds,
             evolution_benchmark=settings.evolution.benchmark,
             learning_max_experiments=settings.learning.max_experiments,
+            execution_enabled=settings.execution.enabled,
+            lab_enabled=settings.lab.enabled,
         )
 
     @app.get("/model", response_model=ModelStatusResponse)
@@ -340,6 +344,14 @@ def create_app(settings_root: PathContext) -> FastAPI:
             raise HTTPException(status_code=404, detail="Generation not found.")
         return _generation_response(app.state.context.db, generation, name)
 
+    @app.post("/commands", response_model=dict[str, str])
+    def run_command(body: CommandRequest) -> dict[str, str]:
+        try:
+            output = app.state.context.execution.run(body.command)
+        except ExecutionError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {"output": output}
+
     @app.get("/capabilities", response_model=list[CapabilityResponse])
     def capabilities() -> list[CapabilityResponse]:
         return _capabilities(app.state.context.modules)
@@ -460,6 +472,7 @@ class PathContext:
         modules: ModuleService,
         development: DevelopmentService,
         archive: ArchiveService,
+        execution: ExecutionService,
     ) -> None:
         self.root = root
         self.settings = settings
@@ -469,11 +482,12 @@ class PathContext:
         self.modules = modules
         self.development = development
         self.archive = archive
+        self.execution = execution
         self.conversations = ConversationService(settings, db, models)
-        self.orchestrator = Orchestrator(settings, db, models, research, modules, development, archive)
+        self.orchestrator = Orchestrator(settings, db, models, research, modules, development, archive, execution)
 
 
-def build_context(root, settings, backend, http=None, module_runner=None, candidate_runner=None) -> PathContext:
+def build_context(root, settings, backend, http=None, module_runner=None, candidate_runner=None, command_runner=None) -> PathContext:
     db_path = settings.resolve_path(settings.database.path, root)
     db = Database(db_path)
     db.migrate()
@@ -482,7 +496,8 @@ def build_context(root, settings, backend, http=None, module_runner=None, candid
     modules = ModuleService(settings, db, root, module_runner)
     development = DevelopmentService(settings, db, root, candidate_runner)
     archive = ArchiveService(settings, db, development)
-    return PathContext(root, settings, db, models, research, modules, development, archive)
+    execution = ExecutionService(settings, root, command_runner)
+    return PathContext(root, settings, db, models, research, modules, development, archive, execution)
 
 
 def build_runtime_context(backend=None) -> PathContext:

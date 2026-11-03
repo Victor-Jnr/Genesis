@@ -22,6 +22,8 @@ BUILTIN_CAPABILITIES = (
     ("fetch", "Fetch a public page"),
     ("read", "Read documentation and list install requirements"),
     ("download", "Download a public file"),
+    ("browse", "Read page text without running JavaScript"),
+    ("run", "Run one local program when execution is enabled"),
     ("install", "Register a module folder that is already inside the project"),
     ("invoke", "Call an installed module"),
     ("remember", "Save a procedure"),

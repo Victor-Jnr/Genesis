@@ -51,7 +51,7 @@ class ResearchConfig(BaseModel):
     timeout_seconds: float = Field(default=20, gt=0)
     max_bytes: int = Field(default=5_000_000, gt=0)
     max_results: int = Field(default=5, gt=0, le=25)
-    max_actions: int = Field(default=4, gt=0, le=12)
+    max_actions: int = Field(default=8, gt=0, le=12)
     allow_private_hosts: bool = False
     user_agent: str = "Genesis/0.3"
     github_token: str | None = None
@@ -75,6 +75,20 @@ class EvolutionConfig(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     benchmark: str = "tests"
+
+
+class ExecutionConfig(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    enabled: bool = False
+    timeout_seconds: float = Field(default=60, gt=0, le=300)
+    max_output_chars: int = Field(default=8000, gt=0, le=20000)
+
+
+class LabConfig(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
+    enabled: bool = False
 
 
 class LearningConfig(BaseModel):
@@ -102,6 +116,8 @@ class Settings(BaseModel):
     learning: LearningConfig = Field(default_factory=LearningConfig)
     development: DevelopmentConfig = Field(default_factory=DevelopmentConfig)
     evolution: EvolutionConfig = Field(default_factory=EvolutionConfig)
+    execution: ExecutionConfig = Field(default_factory=ExecutionConfig)
+    lab: LabConfig = Field(default_factory=LabConfig)
     identity: IdentityConfig = Field(default_factory=IdentityConfig)
 
     def resolve_path(self, value: str, root: Path) -> Path:

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.0
+
+An objective can run one local program and read page text with browse. Both stay off the public internet for private addresses until `lab.enabled` is set, and `run` stays off until `execution.enabled` is set. A learning experiment is kept only when it names actions Genesis already has. One step can use eight actions.
+
 ## 0.8.1
 
 Sending a chat message shows that message at once, then “Message sent. Waiting for a reply.” until the model answers.

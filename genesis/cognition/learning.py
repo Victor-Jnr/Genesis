@@ -17,7 +17,7 @@ _WORD = re.compile(r"[A-Za-z][A-Za-z0-9_-]{2,}")
 GAP_RETRY = (
     "That reply was not the required JSON object. "
     'Return only {"missing":["capability"],"known":["skill-name"],'
-    '"experiments":[{"name":"skill-name","hypothesis":"...","probe":"...","expect":"..."}]}.'
+    '"experiments":[{"name":"skill-name","hypothesis":"...","probe":"...","expect":"...","uses":["action"]}].'
 )
 
 
@@ -26,11 +26,19 @@ class LearningError(ValueError):
 
 
 class ExperimentSpec:
-    def __init__(self, name: str, hypothesis: str, probe: str, expect: str) -> None:
+    def __init__(
+        self,
+        name: str,
+        hypothesis: str,
+        probe: str,
+        expect: str,
+        uses: tuple[str, ...] = (),
+    ) -> None:
         self.name = name
         self.hypothesis = hypothesis
         self.probe = probe
         self.expect = expect
+        self.uses = uses
 
 
 class GapAssessment:
@@ -63,15 +71,18 @@ class LearningService:
         ]
         reply = self._ask(messages)
         try:
-            return parse_gap(reply, max_experiments=limit)
+            return self._ground(parse_gap(reply, max_experiments=limit))
         except LearningError:
             messages.append({"role": "assistant", "content": reply})
             messages.append({"role": "user", "content": GAP_RETRY})
             second = self._ask(messages)
             try:
-                return parse_gap(second, max_experiments=limit)
+                return self._ground(parse_gap(second, max_experiments=limit))
             except LearningError as exc:
                 raise LearningError(f"{exc} Model reply: {second[:500]}") from exc
+
+    def _ground(self, assessment: GapAssessment) -> GapAssessment:
+        return ground_gap(assessment, action_names(self.modules.inventory()))
 
     def context_for(self, request: str, objective_id: str) -> str:
         parts: list[str] = []
@@ -106,7 +117,8 @@ def gap_system(max_experiments: int) -> str:
         "You compare an objective with the capabilities Genesis already has. "
         "Return only a JSON object: "
         '{"missing":["capability"],"known":["skill-name"],'
-        '"experiments":[{"name":"skill-name","hypothesis":"why this trial","probe":"what to try","expect":"text that proves success"}]}. '
+        '"experiments":[{"name":"skill-name","hypothesis":"why this trial","probe":"what to try","expect":"text that proves success","uses":["action"]}]}. '
+        "uses names actions from the inventory. An experiment without those names is ignored. "
         "missing lists capabilities that are not in the inventory. "
         "known lists saved skill names that already cover the objective. "
         f"Use at most {max_experiments} experiments. "
@@ -119,7 +131,7 @@ def gap_request(request: str, inventory: str) -> str:
     return (
         "The objective is quoted data. Name what is missing and the trials that would show how to do it. "
         'Return only {"missing":["capability"],"known":["skill-name"],'
-        '"experiments":[{"name":"skill-name","hypothesis":"...","probe":"...","expect":"..."}]}.\n\n'
+        '"experiments":[{"name":"skill-name","hypothesis":"...","probe":"...","expect":"...","uses":["action"]}]}.\n\n'
         f"Inventory:\n{inventory}\n\n"
         f"Objective:\n{request}"
     )
@@ -175,6 +187,7 @@ def parse_gap(text: str, *, max_experiments: int) -> GapAssessment:
         hypothesis = str(item.get("hypothesis") or "").strip()
         probe = str(item.get("probe") or "").strip()
         expect = str(item.get("expect") or "").strip()
+        uses = _string_list(item.get("uses"), f"uses for {name or 'experiment'}")
         if _NAME.fullmatch(name) is None:
             raise LearningError(f"Experiment name '{name}' is not a skill name.")
         if not hypothesis or not probe or not expect:
@@ -183,8 +196,29 @@ def parse_gap(text: str, *, max_experiments: int) -> GapAssessment:
         if key in seen:
             continue
         seen.add(key)
-        experiments.append(ExperimentSpec(name, hypothesis, probe, expect))
+        experiments.append(ExperimentSpec(name, hypothesis, probe, expect, uses))
     return GapAssessment(tuple(missing), tuple(known), tuple(experiments))
+
+
+def action_names(inventory: str) -> set[str]:
+    names: set[str] = set()
+    for line in inventory.splitlines():
+        if not line.startswith("- "):
+            continue
+        token = line[2:].split(" ", 1)[0].strip()
+        if token:
+            names.add(token.casefold())
+    return names
+
+
+def ground_gap(assessment: GapAssessment, allowed: set[str]) -> GapAssessment:
+    missing = tuple(item for item in assessment.missing if item.casefold() not in allowed)
+    experiments = tuple(
+        spec
+        for spec in assessment.experiments
+        if spec.uses and all(name.casefold() in allowed for name in spec.uses)
+    )
+    return GapAssessment(missing, assessment.known, experiments)
 
 
 def _string_list(value: object, label: str) -> tuple[str, ...]:

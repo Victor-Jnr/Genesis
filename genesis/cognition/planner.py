@@ -28,6 +28,7 @@ STEP_SYSTEM = (
     'Actions: {"action":"search","query":"..."}, {"action":"repositories","query":"..."}, '
     '{"action":"package","name":"..."}, {"action":"fetch","url":"..."}, '
     '{"action":"read","url":"..."}, {"action":"download","url":"..."}, '
+    '{"action":"browse","url":"..."}, {"action":"run","command":"..."}, '
     '{"action":"inventory"}, {"action":"install","path":"..."}, '
     '{"action":"invoke","name":"...","task":"..."}, '
     '{"action":"remember","name":"...","text":"..."}, {"action":"skills","query":"..."}, '
@@ -42,6 +43,9 @@ STEP_SYSTEM = (
     '{"action":"finish","result":"..."}. '
     "propose can include \"parent\" as a generation id. "
     "select keeps every generation and names one parent. "
+    "run starts one local program and does not open a shell. "
+    "browse reads page text and does not run JavaScript. "
+    "A private address needs lab.enabled. "
     "propose writes a separate candidate and leaves the live file unchanged. "
     "After an observation, send the next action or the step result."
 )
