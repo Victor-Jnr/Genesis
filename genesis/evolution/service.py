@@ -130,7 +130,15 @@ class ArchiveService:
             if action.name == "evaluate":
                 return self.evaluate(action.package or action.query or "live", action.task or None)
             if action.name == "select":
-                return self.select(action.package or action.query or None)
+                target = action.package or action.query
+                if target and self._find(target) is not None:
+                    benchmark = self._benchmark(None)
+                    baseline = self.baseline()
+                    if self.db.latest_evaluation(baseline.id, benchmark) is None:
+                        self.evaluate(baseline.id)
+                    self.evaluate(target)
+                    return self.select(None)
+                return self.select(target or None)
             if action.name == "lineage":
                 return self.lineage()
             if action.name == "revisit":

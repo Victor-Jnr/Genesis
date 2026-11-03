@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 
 from genesis.api.app import build_context, create_app
 from genesis.cognition.learning import LearningError, covered_gap_reply, gap_request, parse_gap
-from genesis.core.orchestrator.service import _module_folders, _with_next_step
+from genesis.core.orchestrator.service import _action_format, _module_folders, _steer, _with_next_step
 from genesis.tools.research.actions import ResearchAction
 from genesis.core.configuration.settings import DatabaseConfig, LearningConfig, LoggingConfig, ModelConfig, Settings
 from genesis.core.model_interface.llama_cpp_backend import GenerationResult
@@ -247,6 +247,22 @@ def test_assessment_asks_again_when_the_first_reply_is_not_json(tmp_path: Path) 
     assert stored.result == "ok"
     assert any(event.kind == "gap" and event.message == "No missing capability." for event in events)
     assert context.db.list_experiments(objective.id) == []
+
+
+def test_a_source_change_starts_by_inspecting() -> None:
+    request = (
+        "The test suite is failing. "
+        "Propose one candidate change that makes the full test suite pass."
+    )
+    schema = _action_format(request, "look")["schema"]
+    assert schema["properties"]["action"]["const"] == "inspect"
+
+
+def test_a_local_read_is_sent_to_inspect() -> None:
+    message = _steer("The test suite is failing.", ResearchAction("read", url="genesis/core/labels.py"), set())
+    assert message is not None
+    assert "inspect" in message
+    assert "public http URL" in message
 
 
 def test_a_failed_install_points_at_folders_from_the_listing() -> None:

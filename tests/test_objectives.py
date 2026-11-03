@@ -62,6 +62,24 @@ def _success_replies() -> list[str]:
     return [covered_gap_reply(), PLAN, "The request is to add.", "The answer is 4.", "4"]
 
 
+def test_a_repeated_inspect_finishes_the_step(tmp_path: Path) -> None:
+    source = tmp_path / "genesis"
+    source.mkdir()
+    (source / "note.py").write_text("answer = 1\n", encoding="utf-8")
+    plan = json.dumps({"steps": [{"title": "Read", "instruction": "Read the note."}]})
+    inspect = json.dumps({"action": "inspect", "path": "genesis/note.py"})
+    context = _context(tmp_path, ["demo.gguf"], [covered_gap_reply(), plan, inspect, inspect, "done"])
+    context.models.startup()
+    objective = context.orchestrator.submit("Read genesis/note.py.")
+    context.orchestrator.run_available()
+    stored, events = context.orchestrator.get(objective.id)
+    assert stored.status == "completed"
+    assert stored.error is None
+    assert stored.steps[0].result == "answer = 1\n"
+    assert stored.result == "done"
+    assert not any(event.kind == "failed" for event in events)
+
+
 def test_parse_plan_reads_json_and_strips_thinking() -> None:
     steps = parse_plan('<think>draft</think>\n```json\n' + PLAN + "\n```")
     assert [step.title for step in steps] == ["Inspect", "Answer"]

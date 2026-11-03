@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import logging
+import re
 import threading
 from dataclasses import replace
 
 from genesis.capabilities.manifest import ModuleError
 from genesis.capabilities.service import ModuleService
-from genesis.development.service import DevelopmentService
-from genesis.evolution.service import ArchiveService
+from genesis.development.service import DevelopmentService, ModificationError
+from genesis.evolution.service import ArchiveError, ArchiveService
 from genesis.cognition.learning import (
     LearningError,
     LearningService,
@@ -77,6 +78,18 @@ def _option(name: str) -> dict[str, object]:
             "task": {"type": "string"},
         }
         required = ["action", "name", "task"]
+    elif name == "propose":
+        properties = {
+            "action": {"const": "propose"},
+            "path": {"type": "string"},
+            "old": {"type": "string"},
+            "text": {"type": "string"},
+            "rationale": {"type": "string"},
+        }
+        required = ["action", "path", "old", "text", "rationale"]
+    elif name in {"test_candidate", "evaluate", "retain", "select"}:
+        properties = {"action": {"const": name}, "name": {"type": "string"}}
+        required = ["action", "name"]
     elif name == "finish":
         properties = {"action": {"const": "finish"}, "result": {"type": "string"}}
         required = ["action", "result"]
@@ -86,7 +99,20 @@ def _option(name: str) -> dict[str, object]:
     return {"type": "object", "properties": properties, "required": required}
 
 
+def _source_change(request: str) -> bool:
+    lowered = request.casefold()
+    return "candidate" in lowered and ("test suite" in lowered or "tests pass" in lowered)
+
+
 def _action_format(request: str, phase: str) -> dict[str, object]:
+    if _source_change(request):
+        allowed = {"look": ["inspect"], "edit": ["inspect", "propose"]}.get(
+            phase,
+            ["inspect", "propose", "test_candidate", "evaluate", "retain", "select", "finish"],
+        )
+        options = [_option(name) for name in allowed]
+        schema = options[0] if len(options) == 1 else {"oneOf": options}
+        return {"type": "json_object", "schema": schema}
     if not _project_module(request):
         return {"type": "json_object"}
     allowed = {"look": ["inspect"], "acquire": ["inspect", "install"]}.get(
@@ -156,6 +182,10 @@ def _signature(action: ResearchAction) -> tuple[str, ...]:
 
 def _steer(request: str, action: ResearchAction, seen: set[tuple[str, ...]]) -> str | None:
     signature = _signature(action)
+    if action.name == "read" and not action.url.lower().startswith(("http://", "https://")):
+        if signature in seen:
+            return "That read already failed. inspect the project file."
+        return "read only fetches a public http URL. inspect reads a file under genesis, tests, or config."
     if signature in seen:
         return "That action already ran. Choose a different path from the file list, or finish with the invoke output."
     filled = [action.path, action.package, action.task]
@@ -167,6 +197,16 @@ def _steer(request: str, action: ResearchAction, seen: set[tuple[str, ...]]) -> 
     if _project_module(request) and action.name in WEB_ACTIONS:
         return "The module is already in this project. Use inspect. Do not search the web."
     return None
+
+
+_SELECTED = re.compile(r"^Selected ([0-9a-f-]{36}) benchmark \S+ success ([0-9.]+)", re.MULTILINE)
+
+
+def _passing_selection(text: str) -> str | None:
+    match = _SELECTED.search(text)
+    if match is None or float(match.group(2)) < 1.0:
+        return None
+    return match.group(1)
 
 
 def _defers_to_user(reply: str) -> bool:
@@ -314,7 +354,7 @@ class Orchestrator:
             return
         try:
             current = self._prepare(current)
-            if current.status == PAUSED or self._stop.is_set():
+            if current.status in {PAUSED, COMPLETED} or self._stop.is_set():
                 return
             while current.current_step < len(current.steps):
                 if self._stop.is_set():
@@ -328,6 +368,10 @@ class Orchestrator:
                 text, _observations = self._perform_step(
                     current.id, current.request, step, index, len(current.steps)
                 )
+                if _passing_selection(text):
+                    self._mark(current, status=COMPLETED, result=text, error=None, current_step=index + 1)
+                    self._event(current.id, "completed", text[:500])
+                    return
                 updated = list(current.steps)
                 updated[index] = StepRecord(step.title, step.instruction, text)
                 current = self._mark(
@@ -371,7 +415,7 @@ class Orchestrator:
         tools = 0
         last_reply = ""
         invoke_output = ""
-        phase = "look" if _project_module(request) else "call"
+        phase = "look" if _source_change(request) or _project_module(request) else "call"
         for _ in range(limit + 9):
             reply = self.models.generate(
                 messages,
@@ -403,10 +447,14 @@ class Orchestrator:
             if tools >= limit:
                 break
             signature = _signature(action)
+            repeated = signature in seen
             steer = _steer(request, action, seen)
             seen.add(signature)
             if steer is not None:
                 self._event(objective_id, action.name, steer)
+                if action.name in {"inspect", "read"} and repeated:
+                    prior = next((item for item in reversed(observations) if item), "")
+                    return prior or steer, tuple(observations)
                 messages.append({"role": "assistant", "content": reply})
                 messages.append({"role": "user", "content": f"Observation:\n{steer}"})
                 continue
@@ -425,11 +473,21 @@ class Orchestrator:
             observations.append(observation)
             self._event(objective_id, action.name, observation)
             if action.name == "inspect" and not observation.startswith("Modification failed") and phase == "look":
-                phase = "acquire"
+                phase = "edit" if _source_change(request) else "acquire"
             if action.name == "install" and observation.startswith("Installed "):
                 phase = "call"
+            if (
+                _source_change(request)
+                and action.name == "propose"
+                and not observation.startswith(("Modification failed", "Archive failed"))
+            ):
+                phase = "check"
             if action.name == "invoke" and not observation.startswith("Module failed"):
                 invoke_output = observation.strip()
+            if action.name == "select" and _passing_selection(observation):
+                kept = self._keep_winner(objective_id, observation)
+                result = observation if not kept else f"{observation}\n{kept}"
+                return result, tuple(observations)
             messages.append({"role": "assistant", "content": reply})
             messages.append({"role": "user", "content": f"Observation:\n{observation}"})
         raise PlanError(
@@ -437,23 +495,35 @@ class Orchestrator:
             tuple(observations),
         )
 
-    def _learn(self, current: Objective) -> None:
+    def _keep_winner(self, objective_id: str, observation: str) -> str:
+        winner = _passing_selection(observation)
+        if winner is None:
+            return ""
+        try:
+            message = self.archive.retain(winner)
+        except (ArchiveError, ModificationError) as exc:
+            self._event(objective_id, "retain-failed", str(exc))
+            return ""
+        self._event(objective_id, "retained", message)
+        return message
+
+    def _learn(self, current: Objective) -> str | None:
         if self.db.list_gaps(current.id) or self.db.list_experiments(current.id):
-            return
+            return None
         try:
             assessment = self.learning.assess(current.request)
         except LearningError as exc:
             self.db.save_gap(current.id, [], [])
             self._event(current.id, "gap", f"Learning assessment was not usable. {exc}"[:500])
-            return
+            return None
         self.db.save_gap(current.id, list(assessment.missing), list(assessment.known))
         self._event(current.id, "gap", gap_message(assessment))
         for spec in assessment.experiments:
             if self._stop.is_set():
-                return
+                return None
             fresh = self.db.get_objective(current.id)
             if fresh is None or fresh.status == PAUSED:
-                return
+                return None
             try:
                 text, observations = self._perform_step(
                     current.id,
@@ -466,7 +536,7 @@ class Orchestrator:
                 text = str(exc)
                 observations = exc.observations
             outcome = "\n".join(part for part in (text, *observations) if part)
-            success = spec.expect.casefold() in outcome.casefold()
+            success = spec.expect.casefold() in outcome.casefold() or _passing_selection(text) is not None
             self.db.save_experiment(
                 current.id,
                 spec.name,
@@ -477,6 +547,8 @@ class Orchestrator:
                 success,
             )
             self._event(current.id, "experiment", f"{spec.name} {'succeeded' if success else 'failed'}.")
+            if _passing_selection(text):
+                return text
             if not success:
                 continue
             try:
@@ -485,6 +557,7 @@ class Orchestrator:
                 self._event(current.id, "retain-failed", str(exc))
                 continue
             self._event(current.id, "retained", spec.name)
+        return None
 
     def _prepare(self, current: Objective) -> Objective:
         if current.steps:
@@ -493,10 +566,14 @@ class Orchestrator:
         self._event(current.id, "planning", "Planning steps.")
         if self._stop.is_set():
             return current
-        self._learn(current)
+        chosen = self._learn(current)
         fresh = self.db.get_objective(current.id)
         if fresh is None or fresh.status == PAUSED or self._stop.is_set():
             return fresh or current
+        if chosen:
+            self._mark(current, status=COMPLETED, result=chosen, error=None)
+            self._event(current.id, "completed", chosen[:500])
+            return self._require(current.id)
         context = self.learning.context_for(fresh.request, fresh.id)
         steps = self.planner.plan(fresh.request, context)
         fresh = self.db.get_objective(fresh.id)
