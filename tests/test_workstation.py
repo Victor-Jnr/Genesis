@@ -17,7 +17,7 @@ class FakeBackend:
     def unload(self) -> None:
         self.path = None
 
-    def generate(self, messages, model, *, temperature=None, max_tokens=None) -> GenerationResult:
+    def generate(self, messages, model, *, temperature=None, max_tokens=None, response_format=None) -> GenerationResult:
         return GenerationResult("pong", 1, 1, 1.0, "demo.gguf")
 
     def stream(self, messages, model, *, temperature=None, max_tokens=None):

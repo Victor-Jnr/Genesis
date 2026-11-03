@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.2
+
+A passing selection ends the objective and retains that candidate. The live files stay as they were. Reading a file that was already read ends that step with the text already collected.
+
+## 0.9.1
+
+An objective continues when the learning reply is not JSON. That reply is asked for action names and saved skills, and a trial succeeds when the expected text appears in the model reply or in a tool observation. A step asks again when a reply looks like JSON but is not one action, asks the user for more information, or repeats an action it already ran. A module that is already in the project is reached with inspect, install, and invoke, and a web lookup for that module is turned back.
+
 ## 0.9.0
 
 An objective can run one local program and read page text with browse. Both stay off the public internet for private addresses until `lab.enabled` is set, and `run` stays off until `execution.enabled` is set. A learning experiment is kept only when it names actions Genesis already has. One step can use eight actions.

@@ -1,4 +1,5 @@
 import json
+import re
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -29,7 +30,7 @@ class ScriptedBackend:
     def unload(self) -> None:
         self.path = None
 
-    def generate(self, messages, model, *, temperature=None, max_tokens=None) -> GenerationResult:
+    def generate(self, messages, model, *, temperature=None, max_tokens=None, response_format=None) -> GenerationResult:
         content = self.replies.pop(0) if self.replies else "done"
         return GenerationResult(content, 1, 1, 1.0, None if self.path is None else self.path.name)
 
@@ -106,6 +107,18 @@ def test_selection_keeps_every_generation_and_prefers_a_faster_success(tmp_path:
     assert (Path(slow_candidate.directory) / "genesis" / "sample.py").read_text(encoding="utf-8") == "value = 2\n"
     assert (Path(child.directory) / "genesis" / "sample.py").read_text(encoding="utf-8") == "value = 3\n"
     assert (Path(failed.directory) / "genesis" / "sample.py").read_text(encoding="utf-8") == "value = 9\n"
+
+
+def test_select_with_a_candidate_id_scores_the_live_baseline(tmp_path: Path) -> None:
+    from genesis.tools.research.actions import ResearchAction
+
+    context = _context(tmp_path)
+    generation = context.archive.propose(None, "genesis/sample.py", "Count from two.", "value = 1", "value = 2")[2]
+    report = context.archive.execute(None, ResearchAction("select", package=generation.candidate_id))
+    assert f"Selected {generation.id}" in report
+    assert "success 1.0" in report
+    assert "success 0.0" in report
+    assert (tmp_path / "genesis" / "sample.py").read_text(encoding="utf-8") == "value = 1\n"
 
 
 def test_an_earlier_tie_remains_the_parent(tmp_path: Path) -> None:
@@ -187,3 +200,52 @@ def test_objective_proposal_opens_a_generation(tmp_path: Path) -> None:
     generations = context.db.list_generations()
     assert [item.status for item in generations] == ["baseline", "open"]
     assert (tmp_path / "genesis" / "sample.py").read_text(encoding="utf-8") == "value = 1\n"
+
+
+def test_a_passing_selection_retains_the_child_and_stops(tmp_path: Path) -> None:
+    propose = json.dumps(
+        {
+            "action": "propose",
+            "path": "genesis/sample.py",
+            "old": "value = 1",
+            "text": "value = 2",
+            "rationale": "Count from two.",
+        }
+    )
+    plan = json.dumps(
+        {
+            "steps": [
+                {"title": "Edit", "instruction": "Propose a candidate and select it."},
+                {"title": "Again", "instruction": "Inspect the file again."},
+            ]
+        }
+    )
+
+    class SelectingBackend(ScriptedBackend):
+        def generate(self, messages, model, *, temperature=None, max_tokens=None, response_format=None) -> GenerationResult:
+            content = self.replies.pop(0) if self.replies else "inspected again"
+            if content == "SELECT":
+                blob = "\n".join(str(item.get("content", "")) for item in messages)
+                found = re.search(r"Generation ([0-9a-f-]{36})", blob)
+                assert found is not None
+                content = json.dumps({"action": "select", "name": found.group(1)})
+            return GenerationResult(content, 1, 1, 1.0, None if self.path is None else self.path.name)
+
+    context = _context(tmp_path)
+    context.models.backend = SelectingBackend([covered_gap_reply(), plan, propose, "SELECT", "inspected again"])
+    context.models.startup()
+    objective = context.orchestrator.submit("Change the sample through a candidate.")
+    context.orchestrator.run_available()
+    stored, events = context.orchestrator.get(objective.id)
+    assert stored.status == "completed"
+    assert stored.error is None
+    assert "Selected " in (stored.result or "")
+    assert "success 1.0" in (stored.result or "")
+    assert "Retained generation" in (stored.result or "")
+    assert stored.steps[1].result is None
+    assert "inspected again" not in (stored.result or "")
+    generations = context.db.list_generations()
+    assert [item.status for item in generations] == ["baseline", "retained"]
+    assert (tmp_path / "genesis" / "sample.py").read_text(encoding="utf-8") == "value = 1\n"
+    assert any(event.kind == "retained" for event in events)
+    assert not any(event.kind == "failed" for event in events)

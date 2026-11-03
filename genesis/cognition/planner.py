@@ -22,42 +22,34 @@ PLAN_RETRY = (
 )
 
 STEP_SYSTEM = (
-    "You are Genesis carrying out one step of an objective. "
-    "When the step can be answered from the objective, reply with the step result as plain text. "
-    "When it needs a public source, reply with one JSON object and nothing else. "
-    'Actions: {"action":"search","query":"..."}, {"action":"repositories","query":"..."}, '
-    '{"action":"package","name":"..."}, {"action":"fetch","url":"..."}, '
-    '{"action":"read","url":"..."}, {"action":"download","url":"..."}, '
-    '{"action":"browse","url":"..."}, {"action":"run","command":"..."}, '
-    '{"action":"inventory"}, {"action":"install","path":"..."}, '
-    '{"action":"invoke","name":"...","task":"..."}, '
-    '{"action":"remember","name":"...","text":"..."}, {"action":"skills","query":"..."}, '
-    '{"action":"inspect","path":"..."}, '
-    '{"action":"propose","path":"...","old":"exact text","text":"replacement","rationale":"..."}, '
-    '{"action":"test_candidate","name":"candidate id"}, '
-    '{"action":"compare","name":"candidate id"}, {"action":"retain","name":"candidate id"}, '
-    '{"action":"archive"}, {"action":"lineage"}, '
-    '{"action":"evaluate","name":"candidate or generation id"}, '
-    '{"action":"select","name":"tests"}, '
-    '{"action":"revisit","name":"generation id","path":"..."}, '
-    '{"action":"finish","result":"..."}. '
-    "propose can include \"parent\" as a generation id. "
+    "You are Genesis carrying out one step. Return one JSON object and nothing else. "
+    "Do not ask the user. Fill every field from the objective or from an earlier observation. "
+    "inspect reads a directory or file under genesis, tests, or config. "
+    "install registers a module folder that is already in the project. "
+    "invoke calls an installed module. name is the module id. task is the task in the objective. "
+    "The invoke observation is the module's own output. finish copies that output into result. "
+    "search, repositories, package, fetch, read, download, and browse are for public sites. "
+    "Do not use them when the objective says the module is already in the project. "
+    "run, inventory, remember, skills, propose, test_candidate, compare, retain, archive, "
+    "lineage, evaluate, select, and revisit are also actions. "
+    "propose can include parent and leaves the live file unchanged. "
     "select keeps every generation and names one parent. "
-    "run starts one local program and does not open a shell. "
-    "browse reads page text and does not run JavaScript. "
-    "A private address needs lab.enabled. "
-    "propose writes a separate candidate and leaves the live file unchanged. "
-    "After an observation, send the next action or the step result."
+    "run is one local program and does not open a shell. "
+    "browse does not run JavaScript. A private address needs lab.enabled. "
+    "After an observation, send the next action or finish."
 )
 
 CONCLUDE_SYSTEM = (
     "You are Genesis finishing an objective. "
-    "Using the completed steps, reply with the final result and nothing else."
+    "Reply with the final result taken from the completed steps. "
+    "Do not ask the user for anything."
 )
 
 
 class PlanError(ValueError):
-    pass
+    def __init__(self, message: str, observations: tuple[str, ...] = ()) -> None:
+        super().__init__(message)
+        self.observations = observations
 
 
 class Planner:
@@ -82,7 +74,12 @@ class Planner:
                 raise PlanError(f"{exc} Model reply: {second[:500]}") from exc
 
     def _ask(self, messages: list[dict[str, str]]) -> str:
-        result = self.models.generate(messages, temperature=0.0, max_tokens=512)
+        result = self.models.generate(
+            messages,
+            temperature=0.0,
+            max_tokens=self.models.settings.model.max_tokens,
+            response_format={"type": "json_object"},
+        )
         return result.content
 
     def conclude(self, request: str, steps: tuple[StepRecord, ...]) -> str:
@@ -95,7 +92,7 @@ class Planner:
                 {"role": "user", "content": "\n".join(lines)},
             ],
             temperature=0.2,
-            max_tokens=512,
+            max_tokens=self.models.settings.model.max_tokens,
         )
         text = result.content.strip()
         if not text:
@@ -111,6 +108,7 @@ def step_messages(
     context: str = "",
 ) -> list[dict[str, str]]:
     content = (
+        "Carry out this step now. Do not ask the user for anything.\n\n"
         f"Objective:\n{request}\n\n"
         f"Step {index + 1} of {count}: {step.title}\n"
         f"Instruction:\n{step.instruction}"

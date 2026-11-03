@@ -24,7 +24,7 @@ class FakeBackend:
     def unload(self) -> None:
         self.path = None
 
-    def generate(self, messages, model, *, temperature=None, max_tokens=None) -> GenerationResult:
+    def generate(self, messages, model, *, temperature=None, max_tokens=None, response_format=None) -> GenerationResult:
         self.messages = messages
         return GenerationResult(
             content=self.reply,

@@ -29,7 +29,7 @@ class QuietBackend:
     def unload(self) -> None:
         self.path = None
 
-    def generate(self, messages, model, *, temperature=None, max_tokens=None) -> GenerationResult:
+    def generate(self, messages, model, *, temperature=None, max_tokens=None, response_format=None) -> GenerationResult:
         return GenerationResult("done", 1, 1, 1.0, "demo.gguf")
 
     def stream(self, messages, model, *, temperature=None, max_tokens=None):
@@ -124,7 +124,7 @@ def test_objective_can_run_a_program(tmp_path: Path) -> None:
             super().__init__()
             self.replies = list(replies)
 
-        def generate(self, messages, model, *, temperature=None, max_tokens=None) -> GenerationResult:
+        def generate(self, messages, model, *, temperature=None, max_tokens=None, response_format=None) -> GenerationResult:
             content = self.replies.pop(0) if self.replies else "done"
             return GenerationResult(content, 1, 1, 1.0, "demo.gguf")
 

@@ -74,6 +74,10 @@ class ModuleService:
         origin = self._inside(source)
         if not origin.is_dir():
             raise ModuleError(f"{origin} is not a module directory.")
+        if not (origin / "manifest.json").is_file():
+            raise ModuleError(
+                f"{origin} has no manifest. inspect that folder and install the subfolder that contains the module."
+            )
         manifest = load_manifest(origin / "manifest.json")
         destination = self._inside(self.directory / manifest.id)
         if origin != destination:
@@ -113,7 +117,9 @@ class ModuleService:
     def invoke(self, objective_id: str | None, name: str, task: str) -> str:
         record = self.db.get_module(name)
         if record is None or record.status != "active":
-            raise ModuleError(f"{name} is not an active module.")
+            raise ModuleError(
+                f"{name} is not an active module. Install the module folder, then invoke the id written in its files."
+            )
         manifest = load_manifest(Path(record.path) / "manifest.json")
         instance = load_capability(Path(record.path), manifest.entry_point)
         text, verified = call_capability(

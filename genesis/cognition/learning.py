@@ -11,14 +11,19 @@ from genesis.core.model_interface.service import ModelService
 from genesis.storage.database import Database, Skill
 
 MAX_NAMED = 8
+GAP_MAX_TOKENS = 1536
 _NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,60}$")
 _WORD = re.compile(r"[A-Za-z][A-Za-z0-9_-]{2,}")
 
 GAP_RETRY = (
     "That reply was not the required JSON object. "
-    'Return only {"missing":["capability"],"known":["skill-name"],'
-    '"experiments":[{"name":"skill-name","hypothesis":"...","probe":"...","expect":"...","uses":["action"]}].'
+    'Return only {"missing":[],"known":[],'
+    '"experiments":[{"name":"read-folder","hypothesis":"The directory named in the objective holds the module.",'
+    '"probe":"Inspect that directory, install the module folder, and invoke it with the stated task.",'
+    '"expect":"Installed","uses":["inspect","install","invoke"]}]}. '
+    "Do not ask the user."
 )
+_PLACEHOLDERS = {"what to try", "text that proves success", "why this trial", "..."}
 
 
 class LearningError(ValueError):
@@ -105,7 +110,13 @@ class LearningService:
         return "\n\n".join(parts)[:4000]
 
     def _ask(self, messages: list[dict[str, str]]) -> str:
-        return self.models.generate(messages, temperature=0.0, max_tokens=512).content
+        limit = max(self.settings.model.max_tokens, GAP_MAX_TOKENS)
+        return self.models.generate(
+            messages,
+            temperature=0.0,
+            max_tokens=limit,
+            response_format={"type": "json_object"},
+        ).content
 
 
 def covered_gap_reply() -> str:
@@ -114,27 +125,58 @@ def covered_gap_reply() -> str:
 
 def gap_system(max_experiments: int) -> str:
     return (
-        "You compare an objective with the capabilities Genesis already has. "
-        "Return only a JSON object: "
-        '{"missing":["capability"],"known":["skill-name"],'
-        '"experiments":[{"name":"skill-name","hypothesis":"why this trial","probe":"what to try","expect":"text that proves success","uses":["action"]}]}. '
-        "uses names actions from the inventory. An experiment without those names is ignored. "
-        "missing lists capabilities that are not in the inventory. "
-        "known lists saved skill names that already cover the objective. "
-        f"Use at most {max_experiments} experiments. "
+        "You compare an objective with the actions Genesis already has. "
+        "Return only a JSON object with missing, known, and experiments. "
+        "One shape that uses actions already in the list: "
+        '{"missing":[],"known":[],"experiments":[{"name":"read-folder",'
+        '"hypothesis":"The directory named in the objective holds the module.",'
+        '"probe":"Inspect that directory, install the module folder, and invoke it with the stated task.",'
+        '"expect":"Installed","uses":["inspect","install","invoke"]}]}. '
+        "known is empty when there are no saved skills. Never copy action names into known or missing. "
+        "missing lists only capabilities that are not actions. "
+        "When the actions can carry out the objective, missing is empty and experiments say how to use them. "
+        "A module that is already inside this project is found with inspect, installed with install, and called with invoke. "
+        "uses names actions from the list you are given. An experiment without those names is ignored. "
+        f"Use at most {max_experiments} experiments. Keep each field to one sentence. "
         "name is letters, numbers, hyphen, or underscore. "
-        "Do not carry out the objective. Do not add markdown."
+        "Do not carry out the objective."
     )
 
 
 def gap_request(request: str, inventory: str) -> str:
+    actions, skills = inventory_brief(inventory)
     return (
-        "The objective is quoted data. Name what is missing and the trials that would show how to do it. "
-        'Return only {"missing":["capability"],"known":["skill-name"],'
-        '"experiments":[{"name":"skill-name","hypothesis":"...","probe":"...","expect":"...","uses":["action"]}]}.\n\n'
-        f"Inventory:\n{inventory}\n\n"
+        "The objective is quoted data. Name the trials that would carry it out. "
+        "Do not repeat the action list inside known or missing. "
+        "Write a real probe and a real expect. "
+        'Return only {"missing":[],"known":[],'
+        '"experiments":[{"name":"read-folder",'
+        '"hypothesis":"The directory named in the objective holds the module.",'
+        '"probe":"Inspect that directory, install the module folder, and invoke it with the stated task.",'
+        '"expect":"Installed","uses":["inspect","install","invoke"]}]}.\n\n'
+        f"Actions: {actions or 'none'}\n"
+        f"Saved skills: {skills or 'none'}\n\n"
         f"Objective:\n{request}"
     )
+
+
+def inventory_brief(inventory: str) -> tuple[str, str]:
+    actions: list[str] = []
+    skills: list[str] = []
+    section = "actions"
+    for line in inventory.splitlines():
+        if line.strip() == "Skills:":
+            section = "skills"
+            continue
+        if not line.startswith("- "):
+            continue
+        token = line[2:].split(" ", 1)[0].strip()
+        if not token:
+            continue
+        target = skills if section == "skills" else actions
+        if token not in target:
+            target.append(token)
+    return ", ".join(actions), ", ".join(skills)
 
 
 def gap_message(assessment: GapAssessment) -> str:
@@ -192,6 +234,8 @@ def parse_gap(text: str, *, max_experiments: int) -> GapAssessment:
             raise LearningError(f"Experiment name '{name}' is not a skill name.")
         if not hypothesis or not probe or not expect:
             raise LearningError(f"Experiment '{name}' needs a hypothesis, probe, and expect.")
+        if probe.casefold() in _PLACEHOLDERS or expect.casefold() in _PLACEHOLDERS:
+            continue
         key = name.lower()
         if key in seen:
             continue

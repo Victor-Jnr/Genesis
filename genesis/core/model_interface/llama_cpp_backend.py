@@ -60,6 +60,7 @@ class LlamaCppBackend:
         *,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        response_format: dict[str, object] | None = None,
     ) -> GenerationResult:
         llm = self._require()
         started = time.perf_counter()
@@ -68,6 +69,7 @@ class LlamaCppBackend:
             temperature=model.temperature if temperature is None else temperature,
             top_p=model.top_p,
             max_tokens=model.max_tokens if max_tokens is None else max_tokens,
+            response_format=response_format,
         )
         duration_ms = (time.perf_counter() - started) * 1000
         return GenerationResult(

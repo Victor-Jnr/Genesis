@@ -164,7 +164,7 @@ Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8765/skills `
 
 ## Learning
 
-Before an objective is planned, Genesis compares the request with saved skills. A skill whose name appears in the request is reused, and the experiment is not repeated. Otherwise the model names what is missing and up to `learning.max_experiments` trials. Each trial can search, install, and invoke. A trial succeeds when its expected text appears in the outcome. The successful procedure is stored as a skill and included in later plans.
+Before an objective is planned, Genesis compares the request with saved skills. A skill whose name appears in the request is reused, and the experiment is not repeated. Otherwise the model names what is missing and up to `learning.max_experiments` trials. The assessment is given action names and saved skills. Each trial can inspect, install, and invoke. A trial succeeds when its expected text appears in the model reply or in a tool observation. If that assessment is not valid JSON, the objective continues with the capabilities it already has. The successful procedure is stored as a skill and included in later plans.
 
 ```powershell
 Invoke-RestMethod http://127.0.0.1:8765/objectives/<id>/experiments
